@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import axios from "axios";
 import { store } from "@/lib/mock-data";
 import {
   Campaign, CampaignPlatform, CampaignObjective, CampaignApprovalStatus,
@@ -275,14 +276,36 @@ function AdSetForm({ campaignId, onSave }: { campaignId: string; onSave: (adSet:
 }
 
 // ─── Main Campaigns Page ───
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 export default function CampaignsPage() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>(store.getCampaigns());
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [leadFormOpen, setLeadFormOpen] = useState(false);
   const [adSetDialog, setAdSetDialog] = useState<string | null>(null);
   const [detailCampaign, setDetailCampaign] = useState<Campaign | null>(null);
   const [view, setView] = useState<"dashboard" | "list">("dashboard");
   const { currentUser } = useAuth();
+
+  const fetchCampaigns = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const { data } = await axios.get(`${API_URL}/api/campaigns`);
+      // Map _id to id for frontend compatibility
+      const mappedData = data.map((c: any) => ({ ...c, id: c._id }));
+      setCampaigns(mappedData);
+    } catch (error) {
+      console.error("Error fetching campaigns:", error);
+      toast.error("Failed to fetch campaigns.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCampaigns();
+  }, [fetchCampaigns]);
 
   const leads = store.getLeads();
   const admissions = store.getAdmissions();
@@ -323,20 +346,37 @@ export default function CampaignsPage() {
     budget: (c.budget || 0) / 1000,
   }));
 
-  const handleCreateCampaign = (c: Campaign) => {
-    const updated = [...campaigns, c];
-    setCampaigns(updated);
-    store.saveCampaigns(updated);
-    setCreateOpen(false);
-    toast.success("Campaign created successfully.");
+  const handleCreateCampaign = async (c: Campaign) => {
+    try {
+      // Remove temporary ID
+      const { id, ...campaignData } = c;
+      const { data } = await axios.post(`${API_URL}/api/campaigns`, campaignData);
+      setCampaigns([...campaigns, { ...data, id: data._id }]);
+      setCreateOpen(false);
+      toast.success("Campaign created successfully.");
+    } catch (error) {
+      console.error("Error creating campaign:", error);
+      toast.error("Failed to create campaign.");
+    }
   };
 
-  const handleAddAdSet = (adSet: AdSet) => {
-    const updated = campaigns.map((c) => c.id === adSet.campaignId ? { ...c, adSets: [...(c.adSets || []), adSet] } : c);
-    setCampaigns(updated);
-    store.saveCampaigns(updated);
-    setAdSetDialog(null);
-    toast.success("Ad Set added successfully.");
+  const handleAddAdSet = async (adSet: AdSet) => {
+    try {
+      const campaign = campaigns.find((c) => c.id === adSet.campaignId);
+      if (!campaign) return;
+
+      const updatedAdSets = [...(campaign.adSets || []), adSet];
+      const { data } = await axios.put(`${API_URL}/api/campaigns/${campaign.id}`, {
+        adSets: updatedAdSets,
+      });
+
+      setCampaigns(campaigns.map((c) => (c.id === campaign.id ? { ...data, id: data._id } : c)));
+      setAdSetDialog(null);
+      toast.success("Ad Set added successfully.");
+    } catch (error) {
+      console.error("Error adding ad set:", error);
+      toast.error("Failed to add ad set.");
+    }
   };
 
   const handleCreateLead = (lead: Lead) => {
@@ -345,6 +385,14 @@ export default function CampaignsPage() {
     store.saveLeads(updated);
     setLeadFormOpen(false);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

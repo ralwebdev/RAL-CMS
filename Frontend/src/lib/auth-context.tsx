@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import { User, UserRole } from "./types";
 
-const API_URL = "http://localhost:5000/api/auth";
+const API_URL = `${import.meta.env.VITE_API_URL}/api/auth`;
 
 interface AuthContextValue {
   currentUser: User | null;
@@ -57,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginByCredentials = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     if (!email || !password) return { success: false, error: "Email and password are required." };
-    
+
     try {
       const response = await fetch(`${API_URL}/login`, {
         method: "POST",
@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           role: data.role as UserRole,
           password: "",
         };
-        
+
         setCurrentUser(user);
         localStorage.setItem("crm_token", data.token);
         return { success: true };
@@ -95,10 +95,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ 
-      currentUser, 
-      loginByCredentials, 
-      logout, 
+    <AuthContext.Provider value={{
+      currentUser,
+      loginByCredentials,
+      logout,
       isAuthenticated: !!currentUser,
       isLoading
     }}>
