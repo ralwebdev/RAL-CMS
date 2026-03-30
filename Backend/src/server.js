@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import authRoutes from './routes/authRoutes.js';
 import campaignRoutes from './routes/campaignRoutes.js';
 import leadRoutes from './routes/leadRoutes.js';
+import userRoutes from './routes/userRoutes.js';
 
 dotenv.config();
 
@@ -30,6 +31,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/leads', leadRoutes);
+app.use('/api/users', userRoutes);
 
 app.get('/', (req, res) => {
   res.send('API is running...');

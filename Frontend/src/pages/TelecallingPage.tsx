@@ -1,4 +1,7 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import axios from "axios";
+import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
 import { store } from "@/lib/mock-data";
 import { CallLog, CallOutcome, Lead, LeadStatus, Admission, NotInterestedReason, FollowUpType, ConversationInsight } from "@/lib/types";
 import {
@@ -80,16 +83,40 @@ function outcomeBg(o: CallOutcome) {
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
    ═══════════════════════════════════════════════════════════════ */
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 export default function TelecallingPage() {
+  const { currentUser } = useAuth();
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [callLogs, setCallLogs] = useState<CallLog[]>(store.getCallLogs());
   const [followUps, setFollowUps] = useState(store.getFollowUps());
-  const leads = store.getLeads();
   const admissions = store.getAdmissions();
   const users = store.getUsers();
 
-  const currentUser = users.find((u) => u.id === "u3")!;
+  const fetchLeads = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const { data } = await axios.get(`${API_URL}/api/leads`);
+      // Map _id to id for frontend compatibility
+      const mappedData = data.map((l: any) => ({ ...l, id: l._id }));
+      setLeads(mappedData);
+    } catch (error) {
+      console.error("Error fetching leads:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLeads();
+  }, [fetchLeads]);
+
+  // Use currentUser from AuthContext
+  const user = currentUser || users.find((u) => u.id === "u3")!;
+
   const allLeads = leads.filter((l) => l.status !== "Admission" && l.status !== "Lost");
-  const assignedLeads = leads.filter((l) => l.assignedTelecallerId === currentUser.id);
+  const assignedLeads = leads.filter((l) => l.assignedTelecallerId === user.id);
   const activeAssigned = assignedLeads.filter((l) => l.status !== "Admission" && l.status !== "Lost");
 
   const [activeTab, setActiveTab] = useState("queue");
@@ -415,7 +442,7 @@ export default function TelecallingPage() {
 
       <div>
         <h1 className="text-2xl font-bold text-foreground">Telecalling</h1>
-        <p className="text-sm text-muted-foreground">Welcome, {currentUser.name}</p>
+        <p className="text-sm text-muted-foreground">Welcome, {user.name}</p>
       </div>
 
       {/* Top stat cards */}
@@ -1070,16 +1097,31 @@ export default function TelecallingPage() {
           <KanbanBoard
             leads={activeAssigned}
             onLeadSelect={setSelectedLead}
-            onLeadStatusChange={(leadId: string, newStatus: LeadStatus) => {
-              const lead = leads.find((l) => l.id === leadId);
-              if (!lead) return;
-              const updated = { ...lead, status: newStatus, activities: [...(lead.activities || []), {
-                id: `act${Date.now()}`, leadId, type: `Status → ${newStatus}`,
-                description: `Moved to ${newStatus} via telecaller pipeline`, timestamp: new Date().toISOString(),
-              }] };
-              const all = leads.map((l) => l.id === leadId ? updated : l);
-              store.saveLeads(all);
-              window.location.reload();
+            onLeadStatusChange={async (leadId: string, newStatus: LeadStatus) => {
+              try {
+                const lead = leads.find((l) => l.id === leadId);
+                if (!lead) return;
+
+                const activity = {
+                  id: `act${Date.now()}`,
+                  leadId,
+                  type: `Status → ${newStatus}`,
+                  description: `Moved to ${newStatus} via telecaller pipeline`,
+                  timestamp: new Date().toISOString(),
+                };
+
+                const { data } = await axios.put(`${API_URL}/api/leads/${leadId}`, {
+                  status: newStatus,
+                  activities: [...(lead.activities || []), activity],
+                });
+
+                const updatedMapped = { ...data, id: data._id };
+                setLeads(leads.map((l) => (l.id === leadId ? updatedMapped : l)));
+                toast.success(`${lead.name} moved to ${newStatus}`);
+              } catch (error) {
+                console.error("Error updating lead status:", error);
+                toast.error("Failed to update status.");
+              }
             }}
           />
         </TabsContent>

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PieChart as RPieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart, Line, CartesianGrid, Legend } from "recharts";
+import { Trash2, Edit } from "lucide-react";
 
 const PLATFORMS: CampaignPlatform[] = ["Meta", "Google", "LinkedIn", "YouTube", "Referral", "Offline Event"];
 const OBJECTIVES: CampaignObjective[] = ["Lead Generation", "Brand Awareness", "Webinar", "Course Promotion"];
@@ -41,15 +42,27 @@ function metricColor(value: number, good: number, avg: number, inverse = false) 
   return value >= good ? "text-success" : value >= avg ? "text-warning" : "text-destructive";
 }
 
-// ─── Campaign Creation Form ───
-function CampaignForm({ onSave, onCancel }: { onSave: (c: Campaign) => void; onCancel: () => void }) {
+// ─── Campaign Creation/Edit Form ───
+function CampaignForm({ onSave, onCancel, initialData }: { onSave: (c: Campaign) => void; onCancel: () => void; initialData?: Campaign }) {
   const [form, setForm] = useState({
-    name: "", platform: "" as CampaignPlatform | "", objective: "" as CampaignObjective | "",
-    budget: "", dailyBudget: "", startDate: "", endDate: "", targetLocation: "",
-    ageGroup: "", educationLevel: "", interestCategory: "", targetCity: "",
-    marketingManager: "", campaignOwner: "", campaignNotes: "", approvalStatus: "Draft" as CampaignApprovalStatus,
+    name: initialData?.name || "",
+    platform: initialData?.platform || "" as CampaignPlatform | "",
+    objective: initialData?.objective || "" as CampaignObjective | "",
+    budget: initialData?.budget?.toString() || "",
+    dailyBudget: initialData?.dailyBudget?.toString() || "",
+    startDate: initialData?.startDate || "",
+    endDate: initialData?.endDate || "",
+    targetLocation: initialData?.targetLocation || "",
+    ageGroup: initialData?.ageGroup || "",
+    educationLevel: initialData?.educationLevel || "",
+    interestCategory: initialData?.interestCategory || "",
+    targetCity: initialData?.targetCity || "",
+    marketingManager: initialData?.marketingManager || "",
+    campaignOwner: initialData?.campaignOwner || "",
+    campaignNotes: initialData?.campaignNotes || "",
+    approvalStatus: initialData?.approvalStatus || "Draft" as CampaignApprovalStatus,
   });
-  const [utmForm, setUtmForm] = useState<UTMTracking>({ utmSource: "", utmMedium: "", utmCampaign: "", utmContent: "", utmTerm: "" });
+  const [utmForm, setUtmForm] = useState<UTMTracking>(initialData?.utmTracking || { utmSource: "", utmMedium: "", utmCampaign: "", utmContent: "", utmTerm: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const isPaid = PAID_PLATFORMS.includes(form.platform as CampaignPlatform);
@@ -70,7 +83,8 @@ function CampaignForm({ onSave, onCancel }: { onSave: (c: Campaign) => void; onC
   const handleSubmit = () => {
     if (!validate()) return;
     const campaign: Campaign = {
-      id: `c${Date.now()}`,
+      ...initialData,
+      id: initialData?.id || `c${Date.now()}`,
       name: form.name, platform: form.platform as CampaignPlatform, objective: form.objective as CampaignObjective,
       budget: parseFloat(form.budget) || 0, dailyBudget: parseFloat(form.dailyBudget) || 0,
       startDate: form.startDate, endDate: form.endDate, targetLocation: form.targetLocation,
@@ -286,12 +300,16 @@ export default function CampaignsPage() {
   const [adSetDialog, setAdSetDialog] = useState<string | null>(null);
   const [detailCampaign, setDetailCampaign] = useState<Campaign | null>(null);
   const [view, setView] = useState<"dashboard" | "list">("dashboard");
+  const [editCampaign, setEditCampaign] = useState<Campaign | null>(null);
   const { currentUser } = useAuth();
 
   const fetchCampaigns = useCallback(async () => {
     try {
       setIsLoading(true);
-      const { data } = await axios.get(`${API_URL}/api/campaigns`);
+      const token = localStorage.getItem("crm_token");
+      const { data } = await axios.get(`${API_URL}/api/campaigns`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       // Map _id to id for frontend compatibility
       const mappedData = data.map((c: any) => ({ ...c, id: c._id }));
       setCampaigns(mappedData);
@@ -348,9 +366,12 @@ export default function CampaignsPage() {
 
   const handleCreateCampaign = async (c: Campaign) => {
     try {
+      const token = localStorage.getItem("crm_token");
       // Remove temporary ID
       const { id, ...campaignData } = c;
-      const { data } = await axios.post(`${API_URL}/api/campaigns`, campaignData);
+      const { data } = await axios.post(`${API_URL}/api/campaigns`, campaignData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setCampaigns([...campaigns, { ...data, id: data._id }]);
       setCreateOpen(false);
       toast.success("Campaign created successfully.");
@@ -360,14 +381,50 @@ export default function CampaignsPage() {
     }
   };
 
+  const handleUpdateCampaign = async (c: Campaign) => {
+    try {
+      const token = localStorage.getItem("crm_token");
+      const { id, ...campaignData } = c;
+      const { data } = await axios.put(`${API_URL}/api/campaigns/${c.id}`, campaignData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const updated = { ...data, id: data._id };
+      setCampaigns(campaigns.map(item => item.id === updated.id ? updated : item));
+      setEditCampaign(null);
+      if (detailCampaign?.id === updated.id) setDetailCampaign(updated);
+      toast.success("Campaign updated successfully.");
+    } catch (error) {
+      console.error("Error updating campaign:", error);
+      toast.error("Failed to update campaign.");
+    }
+  };
+
+  const handleDeleteCampaign = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this campaign? This action cannot be undone.")) return;
+    try {
+      const token = localStorage.getItem("crm_token");
+      await axios.delete(`${API_URL}/api/campaigns/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCampaigns(campaigns.filter(c => c.id !== id));
+      toast.success("Campaign deleted successfully.");
+    } catch (error) {
+      console.error("Error deleting campaign:", error);
+      toast.error("Failed to delete campaign.");
+    }
+  };
+
   const handleAddAdSet = async (adSet: AdSet) => {
     try {
       const campaign = campaigns.find((c) => c.id === adSet.campaignId);
       if (!campaign) return;
 
+      const token = localStorage.getItem("crm_token");
       const updatedAdSets = [...(campaign.adSets || []), adSet];
       const { data } = await axios.put(`${API_URL}/api/campaigns/${campaign.id}`, {
         adSets: updatedAdSets,
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       setCampaigns(campaigns.map((c) => (c.id === campaign.id ? { ...data, id: data._id } : c)));
@@ -592,10 +649,20 @@ export default function CampaignsPage() {
                       "bg-info/10 text-info"
                     }`}>{c.approvalStatus}</span>
                   </td>
-                  <td className="p-4">
+                  <td className="p-4 flex gap-2">
                     <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setAdSetDialog(c.id); }}>
                       <Plus className="mr-1 h-3.5 w-3.5" />Ad Set
                     </Button>
+                    {(currentUser?.role === "marketing_manager" || currentUser?.role === "admin" || currentUser?.role === "owner") && (
+                      <>
+                        <Button size="sm" variant="outline" className="text-primary hover:text-primary" onClick={(e) => { e.stopPropagation(); setEditCampaign(c); }}>
+                          <Edit className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); handleDeleteCampaign(c.id); }}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -670,8 +737,29 @@ export default function CampaignsPage() {
                   </div>
                 )}
               </div>
+              <div className="flex justify-end gap-2 mt-6 border-t pt-4">
+                {(currentUser?.role === "marketing_manager" || currentUser?.role === "admin" || currentUser?.role === "owner") && (
+                  <>
+                    <Button variant="outline" size="sm" onClick={() => { setEditCampaign(detailCampaign); setDetailCampaign(null); }}>
+                      <Edit className="mr-2 h-4 w-4" /> Edit Campaign
+                    </Button>
+                    <Button variant="outline" size="sm" className="text-destructive border-destructive" onClick={() => { handleDeleteCampaign(detailCampaign.id); setDetailCampaign(null); }}>
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete Campaign
+                    </Button>
+                  </>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => setDetailCampaign(null)}>Close</Button>
+              </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Campaign Dialog */}
+      <Dialog open={!!editCampaign} onOpenChange={(o) => !o && setEditCampaign(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Edit Campaign: {editCampaign?.name}</DialogTitle></DialogHeader>
+          {editCampaign && <CampaignForm initialData={editCampaign} onSave={handleUpdateCampaign} onCancel={() => setEditCampaign(null)} />}
         </DialogContent>
       </Dialog>
 
