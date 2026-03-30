@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import axios from "axios";
 import { store } from "@/lib/mock-data";
 import {
   Lead, LeadStatus, LeadQuality, LeadTemperature, LeadIntentCategory,
@@ -655,13 +656,35 @@ function LeadCreateForm({ onSave, onCancel, userRole }: { onSave: (lead: Lead) =
 // PipelineBoard replaced by KanbanBoard component
 
 // ─── Main Page ───
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 export default function LeadsPage() {
-  const [leads, setLeads] = useState<Lead[]>(store.getLeads());
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [view, setView] = useState<"dashboard" | "pipeline" | "table">("dashboard");
+
+  const fetchLeads = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const { data } = await axios.get(`${API_URL}/api/leads`);
+      // Map _id to id for frontend compatibility
+      const mappedData = data.map((l: any) => ({ ...l, id: l._id }));
+      setLeads(mappedData);
+    } catch (error) {
+      console.error("Error fetching leads:", error);
+      toast.error("Failed to fetch leads.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLeads();
+  }, [fetchLeads]);
 
   const users = store.getUsers();
 
@@ -697,37 +720,67 @@ export default function LeadsPage() {
   // Pipeline chart
   const pipelineData = STATUSES.map((s) => ({ name: s, count: leads.filter((l) => l.status === s).length }));
 
-  const handleCreateLead = (lead: Lead) => {
-    const updated = [...leads, lead];
-    setLeads(updated);
-    store.saveLeads(updated);
-    setCreateOpen(false);
+  const handleCreateLead = async (lead: Lead) => {
+    try {
+      const { id, ...leadData } = lead;
+      const { data } = await axios.post(`${API_URL}/api/leads`, leadData);
+      setLeads([...leads, { ...data, id: data._id }]);
+      setCreateOpen(false);
+      toast.success("Lead created successfully.");
+    } catch (error) {
+      console.error("Error creating lead:", error);
+      toast.error("Failed to create lead.");
+    }
   };
 
-  const handleUpdateLead = (updated: Lead) => {
-    const all = leads.map((l) => l.id === updated.id ? updated : l);
-    setLeads(all);
-    store.saveLeads(all);
-    setSelectedLead(updated);
+  const handleUpdateLead = async (updated: Lead) => {
+    try {
+      const { id, ...leadData } = updated;
+      const { data } = await axios.put(`${API_URL}/api/leads/${updated.id}`, leadData);
+      const updatedMapped = { ...data, id: data._id };
+      setLeads(leads.map((l) => (l.id === updatedMapped.id ? updatedMapped : l)));
+      setSelectedLead(updatedMapped);
+      toast.success("Lead updated successfully.");
+    } catch (error) {
+      console.error("Error updating lead:", error);
+      toast.error("Failed to update lead.");
+    }
   };
 
-  const handleKanbanStatusChange = (leadId: string, newStatus: LeadStatus) => {
-    const lead = leads.find((l) => l.id === leadId);
-    if (!lead) return;
-    const activity = {
-      id: `act${Date.now()}`, leadId, type: `Status → ${newStatus}`,
-      description: `Moved to ${newStatus} via pipeline board`,
-      timestamp: new Date().toISOString(),
-    };
-    const updated: Lead = {
-      ...lead, status: newStatus,
-      activities: [...(lead.activities || []), activity],
-    };
-    const all = leads.map((l) => l.id === leadId ? updated : l);
-    setLeads(all);
-    store.saveLeads(all);
-    toast.success(`${lead.name} moved to ${newStatus}`);
+  const handleKanbanStatusChange = async (leadId: string, newStatus: LeadStatus) => {
+    try {
+      const lead = leads.find((l) => l.id === leadId);
+      if (!lead) return;
+
+      const activity = {
+        id: `act${Date.now()}`,
+        leadId,
+        type: `Status → ${newStatus}`,
+        description: `Moved to ${newStatus} via pipeline board`,
+        timestamp: new Date().toISOString(),
+      };
+
+      const { data } = await axios.put(`${API_URL}/api/leads/${leadId}`, {
+        status: newStatus,
+        activities: [...(lead.activities || []), activity],
+      });
+
+      const updatedMapped = { ...data, id: data._id };
+      setLeads(leads.map((l) => (l.id === leadId ? updatedMapped : l)));
+      toast.success(`${lead.name} moved to ${newStatus}`);
+    } catch (error) {
+      console.error("Error updating lead status:", error);
+      toast.error("Failed to update status.");
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
