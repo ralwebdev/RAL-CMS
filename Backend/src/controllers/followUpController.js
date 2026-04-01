@@ -2,7 +2,11 @@ import FollowUp from '../models/FollowUp.js';
 
 export const getFollowUps = async (req, res) => {
   try {
-    const followUps = await FollowUp.find();
+    let query = {};
+    if (req.user.role === 'telecaller') {
+      query.assignedTo = req.user._id;
+    }
+    const followUps = await FollowUp.find(query).populate('leadId', 'name phone email interestedCourse');
     res.json(followUps);
   } catch (error) {
     res.status(500).json({ message: error.message });

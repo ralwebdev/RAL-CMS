@@ -9,6 +9,7 @@ import {
   MASTER_CAREER_GOALS, MASTER_LEAD_MOTIVATIONS, MASTER_COURSE_NAMES,
 } from "@/lib/master-schema";
 import { TelecallerLeadForm } from "@/components/TelecallerLeadForm";
+import { FollowUpTable } from "@/components/FollowUpTable";
 import { Button } from "@/components/ui/button";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { Input } from "@/components/ui/input";
@@ -439,6 +440,22 @@ export default function TelecallingPage() {
     setOutcomeError("");
   };
 
+  const handleCompleteFollowUp = async (id: string) => {
+    try {
+      const token = localStorage.getItem("crm_token");
+      await axios.put(`${API_URL}/api/followups/${id}`, { completed: true }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setFollowUps(prev => prev.map(f => f.id === id ? { ...f, completed: true } : f));
+      toast.success("Follow-up marked as completed.");
+      // Refresh to update stats
+      fetchData();
+    } catch (error) {
+      console.error("Error completing follow-up:", error);
+      toast.error("Failed to update follow-up.");
+    }
+  };
+
   /* ═══════════════════════════════════════════════════════════════
      RENDER HELPERS
      ═══════════════════════════════════════════════════════════════ */
@@ -567,6 +584,7 @@ export default function TelecallingPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
          <TabsList className="bg-muted w-full overflow-x-auto flex-nowrap justify-start">
           <TabsTrigger value="queue" className="text-xs sm:text-sm">Queue</TabsTrigger>
+          <TabsTrigger value="followups" className="text-xs sm:text-sm">Follow-ups</TabsTrigger>
           <TabsTrigger value="pipeline" className="text-xs sm:text-sm">Pipeline</TabsTrigger>
           <TabsTrigger value="workspace" className="text-xs sm:text-sm">Workspace</TabsTrigger>
           <TabsTrigger value="analytics" className="text-xs sm:text-sm">Analytics</TabsTrigger>
@@ -632,6 +650,27 @@ export default function TelecallingPage() {
               )}
             </div>
           </div>
+        </TabsContent>
+
+        {/* ═══════ TAB: FOLLOW-UPS ═══════ */}
+        <TabsContent value="followups" className="mt-4">
+          <FollowUpTable 
+            followUps={followUps} 
+            onComplete={handleCompleteFollowUp}
+            onCall={(leadData) => {
+              // Ensure we have the full lead object with id
+              const lead = leads.find(l => l.id === leadData.id || l.id === leadData._id);
+              if (lead) {
+                openWorkspace(lead);
+                setActiveTab("workspace");
+              } else {
+                // If lead not found in current state (unlikely but safe)
+                const mappedLead = { ...leadData, id: leadData.id || leadData._id };
+                openWorkspace(mappedLead);
+                setActiveTab("workspace");
+              }
+            }}
+          />
         </TabsContent>
 
         {/* ═══════ TAB 2: CLICK-TO-CALL WORKSPACE ═══════ */}
