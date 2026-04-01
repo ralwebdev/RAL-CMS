@@ -89,31 +89,41 @@ export default function TelecallingPage() {
   const { currentUser } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [callLogs, setCallLogs] = useState<CallLog[]>(store.getCallLogs());
-  const [followUps, setFollowUps] = useState(store.getFollowUps());
-  const admissions = store.getAdmissions();
-  const users = store.getUsers();
+  const [callLogs, setCallLogs] = useState<CallLog[]>([]);
+  const [followUps, setFollowUps] = useState<any[]>([]);
+  const [admissions, setAdmissions] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
 
-  const fetchLeads = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const { data } = await axios.get(`${API_URL}/api/leads`);
-      // Map _id to id for frontend compatibility
-      const mappedData = data.map((l: any) => ({ ...l, id: l._id }));
-      setLeads(mappedData);
+      const token = localStorage.getItem("crm_token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const [leadsRes, callLogsRes, followUpsRes, admissionsRes, usersRes] = await Promise.all([
+        axios.get(`${API_URL}/api/leads`, { headers }),
+        axios.get(`${API_URL}/api/calllogs`, { headers }),
+        axios.get(`${API_URL}/api/followups`, { headers }),
+        axios.get(`${API_URL}/api/admissions`, { headers }),
+        axios.get(`${API_URL}/api/users`, { headers })
+      ]);
+      setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+      setCallLogs(callLogsRes.data.map((c: any) => ({ ...c, id: c._id })));
+      setFollowUps(followUpsRes.data.map((f: any) => ({ ...f, id: f._id })));
+      setAdmissions(admissionsRes.data.map((a: any) => ({ ...a, id: a._id })));
+      setAllUsers(usersRes.data.map((u: any) => ({ ...u, id: u._id })));
     } catch (error) {
-      console.error("Error fetching leads:", error);
+      console.error("Error fetching data:", error);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchLeads();
-  }, [fetchLeads]);
+    fetchData();
+  }, [fetchData]);
 
   // Use currentUser from AuthContext
-  const user = currentUser || users.find((u) => u.id === "u3")!;
+  const user = currentUser!;
 
   const allLeads = leads.filter((l) => l.status !== "Admission" && l.status !== "Lost");
   const assignedLeads = leads.filter((l) => l.assignedTelecallerId === user.id);
@@ -184,7 +194,7 @@ export default function TelecallingPage() {
   }, [conversionData]);
 
   const telecallerPerf = useMemo(() => {
-    return users.filter((u) => u.role === "telecaller").map((tc) => {
+    return allUsers.filter((u) => u.role === "telecaller").map((tc) => {
       const assigned = leads.filter((l) => l.assignedTelecallerId === tc.id);
       const converted = conversionData.filter((c) => c.telecallerId === tc.id);
       const avgATT = converted.length > 0 ? +(converted.reduce((s, c) => s + c.att, 0) / converted.length).toFixed(1) : 0;
@@ -200,7 +210,7 @@ export default function TelecallingPage() {
         followUpsScheduled: calls.filter((cl) => cl.nextFollowUp).length,
       };
     });
-  }, [leads, conversionData, callLogs, users, today]);
+  }, [leads, conversionData, callLogs, allUsers, today]);
 
   const sourcePerf = useMemo(() => {
     const m = new Map<string, { leads: number; admissions: number; totalATT: number }>();
@@ -303,11 +313,11 @@ export default function TelecallingPage() {
       setOutcomeError("Follow-up date is required."); return;
     }
 
-    const newLog: CallLog = {
-      id: `cl${Date.now()}`, leadId: selectedLead.id, telecallerId: currentUser.id,
+    const newLogData = {
+      leadId: selectedLead.id, telecallerId: currentUser.id,
       outcome: outcomeForm.outcome as CallOutcome, notes: outcomeForm.notes,
-      nextFollowUp: outcomeForm.followUpDate || outcomeForm.callbackDate,
-      nextFollowUpTime: outcomeForm.followUpTime || outcomeForm.callbackTime,
+      nextFollowUp: outcomeForm.followUpDate || outcomeForm.callbackDate || undefined,
+      nextFollowUpTime: outcomeForm.followUpTime || outcomeForm.callbackTime || undefined,
       followUpType: (outcomeForm.followUpType as FollowUpType) || undefined,
       notInterestedReason: (outcomeForm.notInterestedReason as NotInterestedReason) || undefined,
       conversationInsight: Object.values(outcomeForm.insight).some(Boolean) ? outcomeForm.insight : undefined,
@@ -315,31 +325,81 @@ export default function TelecallingPage() {
       callbackTime: outcomeForm.callbackTime || undefined,
       createdAt: today,
     };
-    const updated = [...callLogs, newLog];
-    setCallLogs(updated);
-    store.saveCallLogs(updated);
 
-    // If walk-in scheduled, update lead
+    axios.post(`${API_URL}/api/calllogs`, newLogData, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
+    }).then(res => {
+      setCallLogs(prev => [...prev, { ...res.data, id: res.data._id }]);
+    }).catch(console.error);
+
+    // Resolve any pending follow-ups for this lead
+    const pendingFUs = followUps.filter(f => f.leadId === selectedLead.id && !f.completed);
+    pendingFUs.forEach(fu => {
+      axios.put(`${API_URL}/api/followups/${fu.id}`, { completed: true }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
+      }).then(() => {
+        setFollowUps(prev => prev.map(p => p.id === fu.id ? { ...p, completed: true } : p));
+      }).catch(console.error);
+    });
+
+    // Auto status progression
+    let newStatus: LeadStatus = selectedLead.status as LeadStatus;
+    const outcome = outcomeForm.outcome;
+    if (outcome === "Connected") newStatus = "Connected";
+    if (outcome === "Interested") newStatus = "Interested";
+    if (outcome === "Not Answered" || outcome === "Call Later" || outcome === "Switched Off" || outcome === "Invalid Number") {
+      if (selectedLead.status === "New") newStatus = "Contact Attempted";
+    }
+    if (outcome === "Not interested" || outcome === "Wrong Number") {
+      newStatus = "Lost";
+    }
+
+    const updatedLead = { ...selectedLead };
+    let shouldUpdateLead = false;
+
+    if (newStatus !== selectedLead.status) {
+      updatedLead.status = newStatus;
+      if (newStatus === "Lost") {
+        updatedLead.lostReason = (outcomeForm.notInterestedReason || outcome) as any;
+      }
+      shouldUpdateLead = true;
+    }
+
     if (outcomeForm.scheduleWalkIn && outcomeForm.walkInDate) {
-      const allLeadsData = store.getLeads();
-      const updatedLeads = allLeadsData.map((l) =>
-        l.id === selectedLead.id
-          ? { ...l, walkInStatus: "Scheduled" as const, walkInDate: outcomeForm.walkInDate, walkInTime: outcomeForm.walkInTime, walkInCounselor: "u5", assignedCounselor: "u5",
-              activities: [...(l.activities || []), { id: `act${Date.now()}`, leadId: selectedLead.id, type: "Walk-in Scheduled" as const, description: `Walk-in scheduled for ${outcomeForm.walkInDate}`, timestamp: new Date().toISOString(), performedBy: currentUser.id }] }
-          : l
-      );
-      store.saveLeads(updatedLeads);
+      const counselor = allUsers.find(u => u.role === "counselor"); // Pick first available counselor
+      updatedLead.walkInStatus = "Scheduled" as any;
+      updatedLead.walkInDate = outcomeForm.walkInDate;
+      updatedLead.walkInTime = outcomeForm.walkInTime;
+      updatedLead.walkInCounselor = counselor ? counselor.id : undefined;
+      updatedLead.assignedCounselor = counselor ? counselor.id : undefined;
+      shouldUpdateLead = true;
+    }
+
+    if (shouldUpdateLead) {
+      updatedLead.activities = [
+        ...(updatedLead.activities || []), 
+        { leadId: selectedLead.id, type: "Status Updated", description: `Updated via call outcome: ${outcome}`, timestamp: new Date().toISOString() }
+      ];
+      axios.put(`${API_URL}/api/leads/${selectedLead.id}`, updatedLead, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
+      }).then(() => {
+        setLeads(prev => prev.map(l => l.id === selectedLead.id ? updatedLead : l));
+      }).catch(console.error);
     }
 
     // If follow-up scheduled, add to follow-ups
     if (outcomeForm.followUpDate) {
-      const newFU = {
-        id: `f${Date.now()}`, leadId: selectedLead.id, assignedTo: currentUser.id,
+      const newFUBody = {
+        leadId: selectedLead.id, assignedTo: currentUser.id,
         date: outcomeForm.followUpDate, notes: outcomeForm.notes, completed: false, createdAt: today,
       };
-      const updatedFU = [...followUps, newFU];
-      setFollowUps(updatedFU);
-      store.saveFollowUps(updatedFU);
+      
+      axios.post(`${API_URL}/api/followups`, newFUBody, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
+      }).then(res => {
+        setFollowUps(prev => [...prev, { ...res.data, id: res.data._id }]);
+      }).catch(console.error);
+      
       showToast(outcomeForm.scheduleWalkIn ? "Walk-in counseling scheduled successfully." : "Call outcome recorded. Follow-up added to your task queue.");
     } else {
       showToast(outcomeForm.scheduleWalkIn ? "Walk-in counseling scheduled successfully." : "Call outcome recorded successfully.");

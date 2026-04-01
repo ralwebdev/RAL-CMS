@@ -1,18 +1,49 @@
-import { store } from "@/lib/mock-data";
+import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
+import { toast } from "sonner";
+import { Campaign, Lead, Admission } from "@/lib/types";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Megaphone, Users, UserPlus, TrendingUp, Activity } from "lucide-react";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 export default function Dashboard() {
-  const campaigns = store.getCampaigns();
-  const leads = store.getLeads();
-  const admissions = store.getAdmissions();
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [admissions, setAdmissions] = useState<Admission[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const token = localStorage.getItem("crm_token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const [campRes, leadsRes, admRes] = await Promise.all([
+        axios.get(`${API_URL}/api/campaigns`, { headers }),
+        axios.get(`${API_URL}/api/leads`, { headers }),
+        axios.get(`${API_URL}/api/admissions`, { headers })
+      ]);
+      setCampaigns(campRes.data.map((c: any) => ({ ...c, id: c._id })));
+      setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+      setAdmissions(admRes.data.map((a: any) => ({ ...a, id: a._id })));
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast.error("Failed to fetch dashboard data");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const today = new Date().toISOString().split("T")[0];
-  const leadsToday = leads.filter((l) => l.createdAt === today).length;
+  const leadsToday = leads.filter((l) => l.createdAt && l.createdAt.split("T")[0] === today).length;
   const conversionRate = leads.length > 0 ? ((admissions.length / leads.length) * 100).toFixed(1) : "0";
 
-  const recentLeads = [...leads].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5);
+  const recentLeads = [...leads].sort((a, b) => (b.createdAt && a.createdAt) ? b.createdAt.localeCompare(a.createdAt) : 0).slice(0, 5);
 
   return (
     <div className="space-y-6">

@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { store } from "@/lib/mock-data";
-import { Lead, LeadActivity } from "@/lib/types";
 import {
   MASTER_LEAD_SOURCES, MASTER_COURSE_NAMES, MASTER_LOCATIONS,
 } from "@/lib/master-schema";
+import { User, Campaign, Lead, LeadActivity } from "@/lib/types";
 import {
   PROGRAM_CHANNELS, INTERNSHIP_COURSES, INTERNSHIP_DURATIONS,
   INTERNSHIP_LOCATIONS, INTERNSHIP_FEE_BANDS, INTERNSHIP_ENROLLMENT_TYPES,
@@ -31,12 +30,9 @@ function FieldError({ msg }: { msg?: string }) {
 /**
  * Round-robin assignment: picks the telecaller with the fewest assigned leads.
  */
-function getNextTelecaller(): string {
-  const users = store.getUsers();
-  const leads = store.getLeads();
-  const telecallers = users.filter((u) => u.role === "telecaller");
+function getNextTelecaller(telecallers: User[], leads: Lead[]): string {
   if (telecallers.length === 0) return "";
-
+  
   const counts = new Map<string, number>();
   telecallers.forEach((tc) => counts.set(tc.id, 0));
   leads.forEach((l) => {
@@ -48,7 +44,10 @@ function getNextTelecaller(): string {
   let minId = telecallers[0].id;
   let minCount = Infinity;
   counts.forEach((count, id) => {
-    if (count < minCount) { minCount = count; minId = id; }
+    if (count < minCount) {
+      minCount = count;
+      minId = id;
+    }
   });
   return minId;
 }
@@ -57,10 +56,19 @@ interface MarketingLeadFormProps {
   onSave: (lead: Lead) => void;
   onCancel: () => void;
   creatorName?: string;
+  campaigns?: Campaign[];
+  telecallers?: User[];
+  allLeads?: Lead[];
 }
 
-export function MarketingLeadForm({ onSave, onCancel, creatorName = "Marketing" }: MarketingLeadFormProps) {
-  const campaigns = store.getCampaigns();
+export function MarketingLeadForm({ 
+  onSave, 
+  onCancel, 
+  creatorName = "Marketing Manager", 
+  campaigns = [], 
+  telecallers = [], 
+  allLeads = [] 
+}: MarketingLeadFormProps) {
 
   const [form, setForm] = useState({
     name: "", phone: "", email: "", source: "", campaignId: "",
@@ -89,15 +97,8 @@ export function MarketingLeadForm({ onSave, onCancel, creatorName = "Marketing" 
   };
 
   const buildLead = (status: "New" | "New Lead"): Lead => {
-    const existing = store.getLeads();
-    const dup = existing.find((l) => l.phone === form.phone || (form.email && l.email === form.email));
-    if (dup) {
-      toast.error(`Possible duplicate lead detected: ${dup.name} (${dup.phone})`);
-      throw new Error("duplicate");
-    }
-
-    const assignedTelecallerId = getNextTelecaller();
-    const assignedTelecallerName = store.getUsers().find((u) => u.id === assignedTelecallerId)?.name || "";
+    const assignedTelecallerId = getNextTelecaller(telecallers, allLeads);
+    const assignedTelecallerName = telecallers.find((u) => u.id === assignedTelecallerId)?.name || "";
     const now = new Date();
     const leadId = `l${Date.now()}`;
 

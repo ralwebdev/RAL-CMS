@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import axios from "axios";
-import { store } from "@/lib/mock-data";
+import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 import {
   Lead, LeadStatus, LeadQuality, LeadTemperature, LeadIntentCategory,
   DecisionMaker, FeePayer, LostReason, TransferReason, CommunicationChannel,
@@ -20,11 +21,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { toast } from "sonner";
 import {
   Plus, Search, Users, UserCheck, TrendingUp, Phone, MessageCircle,
   Mail, Clock, AlertCircle, CheckCircle2, ArrowRight, Flame, Thermometer,
   Send, Calendar, Eye, ChevronRight, BarChart3, ArrowRightLeft, Star, Save,
+  Check, ChevronsUpDown,
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { KanbanBoard } from "@/components/KanbanBoard";
@@ -136,7 +140,7 @@ function QualChecklist({ qual, onChange }: { qual?: QualificationChecklist; onCh
 // ─── Lead Detail Panel ───
 function LeadDetailPanel({
   lead, users, onUpdate, onClose,
-}: { lead: Lead; users: ReturnType<typeof store.getUsers>; onUpdate: (l: Lead) => void; onClose: () => void }) {
+}: { lead: Lead; users: any[]; onUpdate: (l: Lead) => void; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [lostReason, setLostReason] = useState<LostReason | "">(lead.lostReason || "");
   const [lostError, setLostError] = useState("");
@@ -155,7 +159,7 @@ function LeadDetailPanel({
       return;
     }
     const activity: LeadActivity = {
-      id: `act${Date.now()}`, leadId: lead.id, type: `Status → ${status}`,
+      leadId: lead.id, type: `Status → ${status}`,
       description: `Status changed to ${status}${status === "Lost" && lostReason ? ` (${lostReason})` : ""}`,
       timestamp: new Date().toISOString(),
     };
@@ -171,14 +175,19 @@ function LeadDetailPanel({
     if (!transferTo || !transferReason) return;
     const fromName = users.find((u) => u.id === (lead.assignedCounselor || lead.assignedTelecallerId))?.name || "Unknown";
     const toName = users.find((u) => u.id === transferTo)?.name || "Unknown";
-    const transfer = { id: `tr${Date.now()}`, fromUserId: lead.assignedCounselor || lead.assignedTelecallerId, toUserId: transferTo, reason: transferReason as TransferReason, timestamp: new Date().toISOString() };
+    const transfer = { fromUserId: lead.assignedCounselor || lead.assignedTelecallerId, toUserId: transferTo, reason: transferReason as TransferReason, timestamp: new Date().toISOString() };
     const activity: LeadActivity = {
-      id: `act${Date.now()}`, leadId: lead.id, type: "Lead Transferred",
+      leadId: lead.id, type: "Lead Transferred",
       description: `Transferred from ${fromName} to ${toName} — ${transferReason}`,
       timestamp: new Date().toISOString(),
     };
+    const targetUser = users.find(u => u.id === transferTo);
+    const isTelecaller = targetUser?.role === "telecaller";
+    
     onUpdate({
-      ...lead, assignedCounselor: transferTo,
+      ...lead, 
+      assignedCounselor: isTelecaller ? lead.assignedCounselor : transferTo,
+      assignedTelecallerId: isTelecaller ? transferTo : lead.assignedTelecallerId,
       transferHistory: [...(lead.transferHistory || []), transfer],
       activities: [...(lead.activities || []), activity],
     });
@@ -190,7 +199,7 @@ function LeadDetailPanel({
   const handleLogComm = () => {
     if (!commChannel || !commSummary.trim()) return;
     const activity: LeadActivity = {
-      id: `act${Date.now()}`, leadId: lead.id, type: "Communication",
+      leadId: lead.id, type: "Communication",
       description: commSummary, channel: commChannel as CommunicationChannel,
       userId: lead.assignedTelecallerId, timestamp: new Date().toISOString(),
     };
@@ -385,12 +394,22 @@ function LeadDetailPanel({
 }
 
 // ─── Lead Creation Form (with role-based behavior) ───
-function LeadCreateForm({ onSave, onCancel, userRole }: { onSave: (lead: Lead) => void; onCancel?: () => void; userRole?: string }) {
-  const users = store.getUsers();
-  const telecallers = users.filter((u) => u.role === "telecaller");
-  const campaigns = store.getCampaigns();
+function LeadCreateForm({ onSave, onCancel, userRole, allLeads = [], allUsers = [], allCampaigns = [] }: { 
+  onSave: (lead: Lead) => void; 
+  onCancel?: () => void; 
+  userRole?: string; 
+  allLeads?: Lead[];
+  allUsers?: any[];
+  allCampaigns?: any[];
+}) {
+  const telecallers = allUsers.filter((u) => u.role === "telecaller");
+  const campaigns = allCampaigns;
 
   const isMarketing = userRole === "marketing_manager";
+
+  const [leadMode, setLeadMode] = useState<"fresh" | "existing">("fresh");
+  const [open, setOpen] = useState(false);
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: "", phone: "", email: "", source: "", campaignId: "", interestedCourse: "", assignedTelecallerId: "",
@@ -417,13 +436,47 @@ function LeadCreateForm({ onSave, onCancel, userRole }: { onSave: (lead: Lead) =
 
   const set = (k: string, v: string) => { setForm((p) => ({ ...p, [k]: v })); setIsDirty(true); };
 
+  const handleSelectExisting = (leadId: string) => {
+    const lead = allLeads.find(l => l.id === leadId);
+    if (!lead) return;
+    
+    setSelectedLeadId(leadId);
+    setForm({
+      name: lead.name,
+      phone: lead.phone,
+      email: lead.email || "",
+      source: lead.source,
+      campaignId: lead.campaignId || "",
+      interestedCourse: lead.interestedCourse || "",
+      assignedTelecallerId: lead.assignedTelecallerId || "",
+      currentEducation: lead.currentEducation || "",
+      graduationYear: lead.graduationYear || "",
+      currentOccupation: lead.currentOccupation || "",
+      collegeInstitution: lead.collegeInstitution || "",
+      feePayer: lead.feePayer || "",
+      decisionMaker: lead.decisionMaker || "",
+      budgetRange: lead.budgetRange || "",
+      highestQualification: lead.highestQualification || "",
+      currentStatus: lead.currentStatus as CurrentStatus || "",
+      careerGoal: lead.careerGoal as CareerGoal || "",
+      leadMotivation: lead.leadMotivation as LeadMotivation || "",
+      preferredStartTime: lead.preferredStartTime as PreferredStartTime || "",
+      expectedSalary: lead.expectedSalary || "",
+      jobLocationPreference: lead.jobLocationPreference || "",
+      notes: (lead as any).notes || "",
+    });
+    setOpen(false);
+    setIsDirty(true);
+  };
+
   const buildLead = (): Lead => {
-    // Duplicate detection
-    const existing = store.getLeads();
-    const dup = existing.find((l) => l.phone === form.phone || (form.email && l.email === form.email));
-    if (dup) {
-      toast.error(`Possible duplicate lead detected: ${dup.name} (${dup.phone})`);
-      throw new Error("duplicate");
+    // Duplicate detection (only for fresh leads)
+    if (leadMode === "fresh") {
+      const dup = allLeads.find((l) => l.phone === form.phone || (form.email && l.email === form.email));
+      if (dup) {
+        toast.error(`Possible duplicate lead detected: ${dup.name} (${dup.phone})`);
+        throw new Error("duplicate");
+      }
     }
 
     // Round-robin if no telecaller selected
@@ -431,7 +484,7 @@ function LeadCreateForm({ onSave, onCancel, userRole }: { onSave: (lead: Lead) =
     if (!assignedTc && telecallers.length > 0) {
       const counts = new Map<string, number>();
       telecallers.forEach((tc) => counts.set(tc.id, 0));
-      existing.forEach((l) => {
+      allLeads.forEach((l) => {
         if (l.assignedTelecallerId && counts.has(l.assignedTelecallerId))
           counts.set(l.assignedTelecallerId, (counts.get(l.assignedTelecallerId) || 0) + 1);
       });
@@ -440,9 +493,11 @@ function LeadCreateForm({ onSave, onCancel, userRole }: { onSave: (lead: Lead) =
       assignedTc = minId;
     }
 
-    const assignedName = users.find((u) => u.id === assignedTc)?.name || "";
-    const leadId = `l${Date.now()}`;
+    const assignedName = allUsers.find((u) => u.id === assignedTc)?.name || "";
+    const leadId = leadMode === "existing" && selectedLeadId ? selectedLeadId : "";
     const now = new Date();
+
+    const previousActivities = leadMode === "existing" ? allLeads.find(l => l.id === selectedLeadId)?.activities || [] : [];
 
     return {
       id: leadId, name: form.name, phone: form.phone, email: form.email,
@@ -463,8 +518,9 @@ function LeadCreateForm({ onSave, onCancel, userRole }: { onSave: (lead: Lead) =
       intentScore: 30, intentCategory: "Low Intent", temperature: "Cold",
       priorityScore: 30, priorityCategory: "Low Priority",
       activities: [
-        { id: `act${Date.now()}`, leadId, type: "Lead Created", description: `New lead: ${form.name}`, timestamp: now.toISOString() },
-        ...(assignedTc ? [{ id: `act${Date.now() + 1}`, leadId, type: "Lead Assigned", description: `Assigned to ${assignedName} (auto)`, timestamp: new Date(now.getTime() + 1000).toISOString() }] : []),
+        ...previousActivities,
+        { leadId, type: leadMode === "existing" ? "Lead Re-assigned" : "Lead Created", description: leadMode === "existing" ? `Lead re-assigned by Marketing: ${form.name}` : `New lead: ${form.name}`, timestamp: now.toISOString() },
+        ...(assignedTc ? [{ leadId, type: "Lead Assigned", description: `Assigned to ${assignedName} (auto)`, timestamp: new Date(now.getTime() + 1000).toISOString() }] : []),
       ],
     };
   };
@@ -486,7 +542,7 @@ function LeadCreateForm({ onSave, onCancel, userRole }: { onSave: (lead: Lead) =
     try {
       const lead = buildLead();
       onSave(lead);
-      toast.success("Lead successfully created and assigned for telecalling.");
+      toast.success(leadMode === "existing" ? "Lead successfully re-assigned." : "Lead successfully created and assigned for telecalling.");
     } catch { /* duplicate */ }
   };
 
@@ -497,10 +553,53 @@ function LeadCreateForm({ onSave, onCancel, userRole }: { onSave: (lead: Lead) =
 
   return (
     <div className="space-y-3 pt-2">
+      <div className="flex gap-2 p-1 bg-muted rounded-lg w-fit mb-2">
+        <Button variant={leadMode === "fresh" ? "default" : "ghost"} size="sm" className="h-7 text-xs px-3" onClick={() => setLeadMode("fresh")}>Fresh Lead</Button>
+        <Button variant={leadMode === "existing" ? "default" : "ghost"} size="sm" className="h-7 text-xs px-3" onClick={() => setLeadMode("existing")}>From Previous List</Button>
+      </div>
+
       <div className="max-h-[65vh] overflow-y-auto space-y-3 pr-1">
         <div className="grid grid-cols-2 gap-3">
-          <div><Label>Name <span className="text-destructive">*</span></Label><Input value={form.name} onChange={(e) => set("name", e.target.value)} /><FieldError msg={errors.name} /></div>
-          <div><Label>Phone <span className="text-destructive">*</span></Label><Input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="10-digit number" /><FieldError msg={errors.phone} /></div>
+          <div>
+            <Label>Name <span className="text-destructive">*</span></Label>
+            {leadMode === "fresh" ? (
+              <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Full name" />
+            ) : (
+              <Popover open={open} onOpenChange={setOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between text-left font-normal h-10">
+                    <span className="truncate">{form.name || "Select lead..."}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search previous leads by name or phone..." />
+                    <CommandList>
+                      <CommandEmpty>No leads found.</CommandEmpty>
+                      <CommandGroup>
+                        {allLeads.filter(l => l.status === "Lost" || l.status === "Admission" || l.status === "New" || true).map((lead) => (
+                          <CommandItem
+                            key={lead.id}
+                            value={`${lead.name} ${lead.phone}`}
+                            onSelect={() => handleSelectExisting(lead.id)}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", selectedLeadId === lead.id ? "opacity-100" : "opacity-0")} />
+                            <div className="flex flex-col">
+                              <span>{lead.name}</span>
+                              <span className="text-[10px] text-muted-foreground">{lead.phone} · {lead.status}</span>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            )}
+            <FieldError msg={errors.name} />
+          </div>
+          <div><Label>Phone <span className="text-destructive">*</span></Label><Input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="10-digit number" readOnly={leadMode === "existing"} /><FieldError msg={errors.phone} /></div>
         </div>
         <div><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} /><FieldError msg={errors.email} /></div>
         <div className="grid grid-cols-2 gap-3">
@@ -529,17 +628,15 @@ function LeadCreateForm({ onSave, onCancel, userRole }: { onSave: (lead: Lead) =
           <FieldError msg={errors.interestedCourse} />
         </div>
 
-        {/* Telecaller assignment — not shown for marketing */}
-        {!isMarketing && (
-          <div>
-            <Label>Assign Telecaller</Label>
-            <Select value={form.assignedTelecallerId} onValueChange={(v) => set("assignedTelecallerId", v)}>
-              <SelectTrigger><SelectValue placeholder="Auto-assign (round-robin)" /></SelectTrigger>
-              <SelectContent>{telecallers.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent>
-            </Select>
-            <p className="text-[10px] text-muted-foreground mt-1">Leave empty for automatic round-robin assignment.</p>
-          </div>
-        )}
+        {/* Telecaller assignment */}
+        <div>
+          <Label>Assign Telecaller</Label>
+          <Select value={form.assignedTelecallerId} onValueChange={(v) => set("assignedTelecallerId", v)}>
+            <SelectTrigger><SelectValue placeholder="Auto-assign (round-robin)" /></SelectTrigger>
+            <SelectContent>{telecallers.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground mt-1">Leave empty for automatic round-robin assignment.</p>
+        </div>
 
         {/* Progressive disclosure — student profile (not for marketing quick form) */}
         {!isMarketing && form.interestedCourse && (
@@ -659,7 +756,10 @@ function LeadCreateForm({ onSave, onCancel, userRole }: { onSave: (lead: Lead) =
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function LeadsPage() {
+  const { currentUser } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [allCampaigns, setAllCampaigns] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -667,26 +767,32 @@ export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [view, setView] = useState<"dashboard" | "pipeline" | "table">("dashboard");
 
-  const fetchLeads = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const { data } = await axios.get(`${API_URL}/api/leads`);
-      // Map _id to id for frontend compatibility
-      const mappedData = data.map((l: any) => ({ ...l, id: l._id }));
-      setLeads(mappedData);
+      const token = localStorage.getItem("crm_token");
+      const headers = { Authorization: `Bearer ${token}` };
+      
+      const [leadsRes, usersRes, campaignsRes] = await Promise.all([
+        axios.get(`${API_URL}/api/leads`, { headers }),
+        axios.get(`${API_URL}/api/users`, { headers }),
+        axios.get(`${API_URL}/api/campaigns`, { headers })
+      ]);
+
+      setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+      setAllUsers(usersRes.data.map((u: any) => ({ ...u, id: u._id })));
+      setAllCampaigns(campaignsRes.data.map((c: any) => ({ ...c, id: c._id })));
     } catch (error) {
-      console.error("Error fetching leads:", error);
-      toast.error("Failed to fetch leads.");
+      console.error("Error fetching data:", error);
+      toast.error("Failed to fetch data.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchLeads();
-  }, [fetchLeads]);
-
-  const users = store.getUsers();
+    fetchData();
+  }, [fetchData]);
 
   const filtered = useMemo(() => {
     return leads.filter((l) => {
@@ -697,7 +803,8 @@ export default function LeadsPage() {
   }, [leads, search, statusFilter]);
 
   // Dashboard metrics
-  const newToday = leads.filter((l) => l.status === "New" && l.createdAt === new Date().toISOString().split("T")[0]).length;
+  const todayStr = new Date().toISOString().split("T")[0];
+  const newToday = leads.filter((l) => l.createdAt && l.createdAt.split("T")[0] === todayStr).length;
   const contacted = leads.filter((l) => l.status === "Contacted").length;
   const qualified = leads.filter((l) => l.status === "Qualified").length;
   const admissions = leads.filter((l) => l.status === "Admission").length;
@@ -722,14 +829,29 @@ export default function LeadsPage() {
 
   const handleCreateLead = async (lead: Lead) => {
     try {
+      const isExisting = leads.some(l => l.id === lead.id && !l.id.startsWith("l" + Date.now().toString().slice(0, 5))); // Weak check, but let's use lead.id logic
       const { id, ...leadData } = lead;
-      const { data } = await axios.post(`${API_URL}/api/leads`, leadData);
-      setLeads([...leads, { ...data, id: data._id }]);
+      let data;
+      
+      // If the lead ID is already in our state, it's an update (re-assignment)
+      const existingInSystem = leads.find(l => l.id === lead.id);
+      
+      if (existingInSystem) {
+        const res = await axios.put(`${API_URL}/api/leads/${lead.id}`, leadData);
+        data = res.data;
+        const updatedMapped = { ...data, id: data._id };
+        setLeads(leads.map((l) => (l.id === updatedMapped.id ? updatedMapped : l)));
+        toast.success("Lead re-assigned successfully.");
+      } else {
+        const res = await axios.post(`${API_URL}/api/leads`, leadData);
+        data = res.data;
+        setLeads([...leads, { ...data, id: data._id }]);
+        toast.success("Lead created successfully.");
+      }
       setCreateOpen(false);
-      toast.success("Lead created successfully.");
     } catch (error) {
-      console.error("Error creating lead:", error);
-      toast.error("Failed to create lead.");
+      console.error("Error creating/updating lead:", error);
+      toast.error("Failed to process lead.");
     }
   };
 
@@ -753,7 +875,6 @@ export default function LeadsPage() {
       if (!lead) return;
 
       const activity = {
-        id: `act${Date.now()}`,
         leadId,
         type: `Status → ${newStatus}`,
         description: `Moved to ${newStatus} via pipeline board`,
@@ -806,7 +927,7 @@ export default function LeadsPage() {
             </DialogTrigger>
             <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader><DialogTitle>Add New Lead</DialogTitle></DialogHeader>
-              <LeadCreateForm onSave={handleCreateLead} />
+              <LeadCreateForm onSave={handleCreateLead} onCancel={() => setCreateOpen(false)} userRole="marketing_manager" allLeads={leads} allUsers={allUsers} allCampaigns={allCampaigns} />
             </DialogContent>
           </Dialog>
         </div>
@@ -897,6 +1018,7 @@ export default function LeadsPage() {
                   <th className="p-4 font-medium">Score</th>
                   <th className="p-4 font-medium">Temp</th>
                   <th className="p-4 font-medium">Status</th>
+                  <th className="p-4 font-medium">Assigned To</th>
                   <th className="p-4 font-medium">Priority</th>
                   <th className="p-4 font-medium"></th>
                 </tr>
@@ -920,6 +1042,16 @@ export default function LeadsPage() {
                     </td>
                     <td className="p-4"><TempBadge temp={lead.temperature} /></td>
                     <td className="p-4"><StatusBadge status={lead.status} /></td>
+                    <td className="p-4">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-medium text-card-foreground">
+                          {allUsers.find(u => u.id === lead.assignedTelecallerId)?.name || "Unassigned"}
+                        </span>
+                        {lead.assignedTelecallerId && (
+                          <span className="text-[10px] text-muted-foreground">Telecaller</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-4"><PriorityBadge cat={lead.priorityCategory} /></td>
                     <td className="p-4">
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -937,7 +1069,7 @@ export default function LeadsPage() {
       <Dialog open={!!selectedLead} onOpenChange={(o) => !o && setSelectedLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           {selectedLead && (
-            <LeadDetailPanel lead={selectedLead} users={users} onUpdate={handleUpdateLead} onClose={() => setSelectedLead(null)} />
+            <LeadDetailPanel lead={selectedLead} users={allUsers} onUpdate={handleUpdateLead} onClose={() => setSelectedLead(null)} />
           )}
         </DialogContent>
       </Dialog>

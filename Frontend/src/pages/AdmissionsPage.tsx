@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { store } from "@/lib/mock-data";
-import { Admission, PaymentStatus, PaymentMode, PaymentType, PaymentHistoryEntry } from "@/lib/types";
+import axios from "axios";
+import { Admission, PaymentStatus, PaymentMode, PaymentType, PaymentHistoryEntry, Lead } from "@/lib/types";
 import {
   MASTER_PAYMENT_MODES, MASTER_COURSE_NAMES, MASTER_BATCH_TIMINGS,
   MASTER_SCHOLARSHIP_LEVELS,
@@ -179,7 +179,6 @@ function PaymentForm({
     if (!validate()) return;
 
     const entry: PaymentHistoryEntry = {
-      id: `ph${Date.now()}`,
       paymentDate: new Date().toISOString().split("T")[0],
       amountPaid: parseFloat(amountPaid),
       paymentMode: paymentMode as PaymentMode,
@@ -304,14 +303,43 @@ function PaymentForm({
   );
 }
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 export default function AdmissionsPage() {
-  const [admissions, setAdmissions] = useState<Admission[]>(store.getAdmissions());
+  const [admissions, setAdmissions] = useState<Admission[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [paymentDialogAdm, setPaymentDialogAdm] = useState<Admission | null>(null);
-  const [selectedAdm, setSelectedAdm] = useState<Admission | null>(admissions[0] || null);
+  const [selectedAdm, setSelectedAdm] = useState<Admission | null>(null);
   const [newPaymentIds, setNewPaymentIds] = useState<Set<string>>(new Set());
 
-  const leads = store.getLeads();
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const token = localStorage.getItem("crm_token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const [admRes, leadsRes] = await Promise.all([
+        axios.get(`${API_URL}/api/admissions`, { headers }),
+        axios.get(`${API_URL}/api/leads`, { headers })
+      ]);
+      setAdmissions(admRes.data.map((a: any) => ({ ...a, id: a._id })));
+      setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+      if (admRes.data.length > 0 && !selectedAdm) {
+        setSelectedAdm({ ...admRes.data[0], id: admRes.data[0]._id });
+      }
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast.error("Failed to fetch admissions");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedAdm]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
   const qualifiedLeads = leads.filter((l) => l.status === "Admission" || l.status === "Qualified");
 
   const [form, setForm] = useState({
@@ -320,56 +348,72 @@ export default function AdmissionsPage() {
     parentName: "", parentPhone: "", studentBankName: "", parentBankName: "",
   });
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const lead = leads.find((l) => l.id === form.leadId);
     if (!lead) return;
-    const newAdm: Admission = {
-      id: `a${Date.now()}`,
-      leadId: form.leadId,
-      studentName: lead.name,
-      phone: lead.phone,
-      email: lead.email,
-      courseSelected: form.courseSelected,
-      batch: form.batch,
-      admissionDate: form.admissionDate,
-      totalFee: parseFloat(form.totalFee) || 0,
-      paymentStatus: form.paymentStatus,
-      paymentMode: "",
-      chequeNumber: "",
-      transactionId: "",
-      paymentType: "",
-      emiNumber: null,
-      totalEmis: null,
-      paymentHistory: [],
-      parentName: form.parentName,
-      parentPhone: form.parentPhone,
-      studentBankName: form.studentBankName,
-      parentBankName: form.parentBankName,
-      createdAt: new Date().toISOString().split("T")[0],
-    };
-    const updated = [...admissions, newAdm];
-    setAdmissions(updated);
-    store.saveAdmissions(updated);
+    
+    try {
+      const token = localStorage.getItem("crm_token");
+      const newAdmBody = {
+        leadId: form.leadId,
+        studentName: lead.name,
+        phone: lead.phone,
+        email: lead.email,
+        courseSelected: form.courseSelected,
+        batch: form.batch,
+        admissionDate: form.admissionDate,
+        totalFee: parseFloat(form.totalFee) || 0,
+        paymentStatus: form.paymentStatus,
+        parentName: form.parentName,
+        parentPhone: form.parentPhone,
+        studentBankName: form.studentBankName,
+        parentBankName: form.parentBankName,
+      };
 
-    const updatedLeads = leads.map((l) => l.id === form.leadId ? { ...l, status: "Admission" as const } : l);
-    store.saveLeads(updatedLeads);
+      const { data } = await axios.post(`${API_URL}/api/admissions`, newAdmBody, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
-    setForm({ leadId: "", courseSelected: "", batch: "", admissionDate: "", totalFee: "", paymentStatus: "Pending", parentName: "", parentPhone: "", studentBankName: "", parentBankName: "" });
-    setCreateOpen(false);
-    toast.success("Admission created successfully.");
+      // Update lead status in backend as well
+      await axios.put(`${API_URL}/api/leads/${form.leadId}`, { status: "Admission" }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setAdmissions(prev => [...prev, { ...data, id: data._id }]);
+      setLeads(prev => prev.map(l => l.id === form.leadId ? { ...l, status: "Admission" } : l));
+      
+      setForm({ leadId: "", courseSelected: "", batch: "", admissionDate: "", totalFee: "", paymentStatus: "Pending", parentName: "", parentPhone: "", studentBankName: "", parentBankName: "" });
+      setCreateOpen(false);
+      toast.success("Admission created successfully.");
+    } catch (error) {
+      console.error("Error creating admission:", error);
+      toast.error("Failed to create admission");
+    }
   };
 
-  const handlePaymentSave = (updated: Admission) => {
-    const newHistory = updated.paymentHistory;
-    const lastEntry = newHistory[newHistory.length - 1];
-    const all = admissions.map((a) => (a.id === updated.id ? updated : a));
-    setAdmissions(all);
-    store.saveAdmissions(all);
-    setSelectedAdm(updated);
-    setPaymentDialogAdm(null);
-    if (lastEntry) {
-      setNewPaymentIds((prev) => new Set(prev).add(lastEntry.id));
-      setTimeout(() => setNewPaymentIds((prev) => { const n = new Set(prev); n.delete(lastEntry.id); return n; }), 1600);
+  const handlePaymentSave = async (updated: Admission) => {
+    try {
+      const token = localStorage.getItem("crm_token");
+      const { data } = await axios.put(`${API_URL}/api/admissions/${updated.id}`, updated, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const newHistory = data.paymentHistory;
+      const lastEntry = newHistory[newHistory.length - 1];
+      const updatedWithId = { ...data, id: data._id };
+      
+      setAdmissions(prev => prev.map((a) => (a.id === updated.id ? updatedWithId : a)));
+      setSelectedAdm(updatedWithId);
+      setPaymentDialogAdm(null);
+
+      if (lastEntry) {
+        const lastEntryId = lastEntry._id || lastEntry.id;
+        setNewPaymentIds((prev) => new Set(prev).add(lastEntryId));
+        setTimeout(() => setNewPaymentIds((prev) => { const n = new Set(prev); n.delete(lastEntryId); return n; }), 1600);
+      }
+    } catch (error) {
+      console.error("Error saving payment:", error);
+      toast.error("Failed to record payment");
     }
   };
 

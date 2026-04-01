@@ -4,13 +4,13 @@ const LeadActivitySchema = new mongoose.Schema({
   type: { type: String, required: true },
   description: { type: String, required: true },
   channel: { type: String },
-  userId: { type: String },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   timestamp: { type: Date, default: Date.now },
 });
 
 const LeadTransferSchema = new mongoose.Schema({
-  fromUserId: { type: String },
-  toUserId: { type: String },
+  fromUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  toUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   reason: { type: String },
   timestamp: { type: Date, default: Date.now },
 });
@@ -36,15 +36,15 @@ const LeadSchema = new mongoose.Schema({
   phone: { type: String, required: true },
   email: { type: String },
   source: { type: String, required: true },
-  campaignId: { type: String },
+  campaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
   interestedCourse: { type: String },
-  assignedTelecallerId: { type: String },
-  status: { 
-    type: String, 
+  assignedTelecallerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  status: {
+    type: String,
     required: true,
     enum: [
-      "New", "Contact Attempted", "Connected", "Interested", 
-      "Application Submitted", "Interview Scheduled", "Interview Completed", 
+      "New", "Contact Attempted", "Connected", "Interested",
+      "Application Submitted", "Interview Scheduled", "Interview Completed",
       "Counseling", "Qualified", "Admission", "Lost", "Contacted", "Follow-up"
     ],
     default: "New"
@@ -56,7 +56,7 @@ const LeadSchema = new mongoose.Schema({
   internshipFee: { type: Number },
   internshipEnrollmentType: { type: String },
   internshipPipelineStage: { type: String },
-  
+
   // Attribution
   adSetName: { type: String },
   adName: { type: String },
@@ -99,8 +99,8 @@ const LeadSchema = new mongoose.Schema({
   temperature: { type: String, enum: ["Hot", "Warm", "Cold", "Dormant"] },
 
   // Ownership & Timeline
-  assignedCounselor: { type: String },
-  leadOwner: { type: String },
+  assignedCounselor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  leadOwner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   transferHistory: [LeadTransferSchema],
   activities: [LeadActivitySchema],
 
@@ -137,7 +137,7 @@ const LeadSchema = new mongoose.Schema({
   walkInStatus: { type: String },
   walkInDate: { type: String },
   walkInTime: { type: String },
-  walkInCounselor: { type: String },
+  walkInCounselor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   counselingOutcome: { type: String },
 
   // Joining
@@ -154,7 +154,7 @@ const LeadSchema = new mongoose.Schema({
     educationCertificate: { type: Boolean, default: false },
     photographs: { type: Boolean, default: false },
   },
-  
+
   // Failure tracking
   joiningFailureReason: { type: String },
   joiningDelayed: { type: Boolean, default: false },

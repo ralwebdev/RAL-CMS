@@ -1,6 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import axios from "axios";
-import { store } from "@/lib/mock-data";
 import {
   Campaign, CampaignPlatform, CampaignObjective, CampaignApprovalStatus,
   AudienceType, RetargetingSource, AdType, AdSet, AdCreative, LandingPage, UTMTracking, Lead,
@@ -84,7 +83,6 @@ function CampaignForm({ onSave, onCancel, initialData }: { onSave: (c: Campaign)
     if (!validate()) return;
     const campaign: Campaign = {
       ...initialData,
-      id: initialData?.id || `c${Date.now()}`,
       name: form.name, platform: form.platform as CampaignPlatform, objective: form.objective as CampaignObjective,
       budget: parseFloat(form.budget) || 0, dailyBudget: parseFloat(form.dailyBudget) || 0,
       startDate: form.startDate, endDate: form.endDate, targetLocation: form.targetLocation,
@@ -228,12 +226,12 @@ function AdSetForm({ campaignId, onSave }: { campaignId: string; onSave: (adSet:
   const handleSave = () => {
     if (!name || !audienceType) return;
     const ads: AdCreative[] = adType ? [{
-      id: `ad${Date.now()}`, adType: adType as AdType, creativeHook, primaryMessage, cta,
+      adType: adType as AdType, creativeHook, primaryMessage, cta,
     }] : [];
     onSave({
-      id: `as${Date.now()}`, campaignId, name, audienceType: audienceType as AudienceType,
+      campaignId, name, audienceType: audienceType as AudienceType,
       sourceAudience, retargetingSource, ads,
-    });
+    } as any);
   };
 
   return (
@@ -301,21 +299,33 @@ export default function CampaignsPage() {
   const [detailCampaign, setDetailCampaign] = useState<Campaign | null>(null);
   const [view, setView] = useState<"dashboard" | "list">("dashboard");
   const [editCampaign, setEditCampaign] = useState<Campaign | null>(null);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [admissions, setAdmissions] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
   const { currentUser } = useAuth();
 
   const fetchCampaigns = useCallback(async () => {
     try {
       setIsLoading(true);
       const token = localStorage.getItem("crm_token");
-      const { data } = await axios.get(`${API_URL}/api/campaigns`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const headers = { Authorization: `Bearer ${token}` };
+      
+      const [campRes, leadsRes, admRes, usersRes] = await Promise.all([
+        axios.get(`${API_URL}/api/campaigns`, { headers }),
+        axios.get(`${API_URL}/api/leads`, { headers }),
+        axios.get(`${API_URL}/api/admissions`, { headers }),
+        axios.get(`${API_URL}/api/users`, { headers })
+      ]);
+      
       // Map _id to id for frontend compatibility
-      const mappedData = data.map((c: any) => ({ ...c, id: c._id }));
-      setCampaigns(mappedData);
+      const mappedCamp = campRes.data.map((c: any) => ({ ...c, id: c._id }));
+      setCampaigns(mappedCamp);
+      setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+      setAdmissions(admRes.data.map((a: any) => ({ ...a, id: a._id })));
+      setAllUsers(usersRes.data.map((u: any) => ({ ...u, id: u._id })));
     } catch (error) {
-      console.error("Error fetching campaigns:", error);
-      toast.error("Failed to fetch campaigns.");
+      console.error("Error fetching data:", error);
+      toast.error("Failed to fetch campaigns data.");
     } finally {
       setIsLoading(false);
     }
@@ -325,15 +335,14 @@ export default function CampaignsPage() {
     fetchCampaigns();
   }, [fetchCampaigns]);
 
-  const leads = store.getLeads();
-  const admissions = store.getAdmissions();
-
   // ─── Computed Analytics ───
   const totalSpend = campaigns.reduce((s, c) => s + (c.budget || 0), 0);
-  const totalLeads = campaigns.reduce((s, c) => s + (c.leadsGenerated || 0), 0);
+  const totalLeads = leads.length;
   const qualifiedLeads = leads.filter((l) => ["Qualified", "Admission"].includes(l.status)).length;
   const admissionCount = admissions.length;
   const totalRevenue = admissions.reduce((s, a) => s + (a.totalFee || 0), 0);
+  const todayStr = new Date().toISOString().split("T")[0];
+  const newToday = leads.filter(l => l.createdAt && l.createdAt.split("T")[0] === todayStr).length;
 
   const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
   const cpql = qualifiedLeads > 0 ? totalSpend / qualifiedLeads : 0;
@@ -436,11 +445,20 @@ export default function CampaignsPage() {
     }
   };
 
-  const handleCreateLead = (lead: Lead) => {
-    const existing = store.getLeads();
-    const updated = [...existing, lead];
-    store.saveLeads(updated);
-    setLeadFormOpen(false);
+  const handleCreateLead = async (lead: Lead) => {
+    try {
+      const token = localStorage.getItem("crm_token");
+      const { data } = await axios.post(`${API_URL}/api/leads`, lead, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setLeads((prev) => [...prev, { ...data, id: data._id }]);
+      setLeadFormOpen(false);
+      fetchCampaigns(); // Real-time sync for individual campaign counters
+      toast.success("Lead captured successfully.");
+    } catch (error) {
+      console.error("Error capturing lead:", error);
+      toast.error("Failed to capture lead.");
+    }
   };
 
   if (isLoading) {
@@ -472,7 +490,14 @@ export default function CampaignsPage() {
             </DialogTrigger>
             <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader><DialogTitle>Quick Lead Capture</DialogTitle></DialogHeader>
-              <MarketingLeadForm onSave={handleCreateLead} onCancel={() => setLeadFormOpen(false)} creatorName={currentUser?.name || "Marketing"} />
+              <MarketingLeadForm 
+                onSave={handleCreateLead} 
+                onCancel={() => setLeadFormOpen(false)} 
+                creatorName={currentUser?.name || "Marketing"} 
+                campaigns={campaigns} 
+                telecallers={allUsers.filter(u => u.role === "telecaller")}
+                allLeads={leads}
+              />
             </DialogContent>
           </Dialog>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -491,7 +516,8 @@ export default function CampaignsPage() {
       {view === "dashboard" && (
         <>
           {/* KPI Cards */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <StatCard title="New Today" value={newToday} icon={<Plus className="h-5 w-5" />} />
             <StatCard title="Total Spend" value={`₹${totalSpend.toLocaleString()}`} icon={<DollarSign className="h-5 w-5" />} />
             <StatCard title="Total Leads" value={totalLeads} icon={<Users className="h-5 w-5" />} />
             <StatCard title="Cost Per Lead" value={`₹${Math.round(cpl).toLocaleString()}`} icon={<Target className="h-5 w-5" />} />

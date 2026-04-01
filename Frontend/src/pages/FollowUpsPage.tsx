@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { store } from "@/lib/mock-data";
-import { FollowUp, FollowUpType } from "@/lib/types";
+import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
+import { toast } from "sonner";
+import { FollowUp, FollowUpType, Lead } from "@/lib/types";
 import { MASTER_FOLLOWUP_TYPES } from "@/lib/master-schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,37 +12,85 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { CalendarClock, Check, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 export default function FollowUpsPage() {
-  const [followUps, setFollowUps] = useState<FollowUp[]>(store.getFollowUps());
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const leads = store.getLeads();
-  const users = store.getUsers();
+
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const token = localStorage.getItem("crm_token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const [fuRes, leadsRes, usersRes] = await Promise.all([
+        axios.get(`${API_URL}/api/followups`, { headers }),
+        axios.get(`${API_URL}/api/leads`, { headers }),
+        axios.get(`${API_URL}/api/users`, { headers })
+      ]);
+      setFollowUps(fuRes.data.map((f: any) => ({ ...f, id: f._id })));
+      setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+      setUsers(usersRes.data.map((u: any) => ({ ...u, id: u._id })));
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast.error("Failed to fetch follow-ups");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const [form, setForm] = useState({ leadId: "", assignedTo: "", date: "", time: "", notes: "", followUpType: "" as FollowUpType | "" });
 
-  const handleCreate = () => {
-    const newFU: FollowUp = {
-      id: `f${Date.now()}`,
-      leadId: form.leadId,
-      assignedTo: form.assignedTo,
-      date: form.date,
-      notes: form.notes,
-      completed: false,
-      createdAt: new Date().toISOString().split("T")[0],
-      followUpType: (form.followUpType as FollowUpType) || undefined,
-      followUpTime: form.time || undefined,
-    };
-    const updated = [...followUps, newFU];
-    setFollowUps(updated);
-    store.saveFollowUps(updated);
-    setForm({ leadId: "", assignedTo: "", date: "", time: "", notes: "", followUpType: "" });
-    setOpen(false);
+  const handleCreate = async () => {
+    try {
+      const newFUBody = {
+        leadId: form.leadId,
+        assignedTo: form.assignedTo,
+        date: form.date,
+        notes: form.notes,
+        completed: false,
+        followUpType: (form.followUpType as FollowUpType) || undefined,
+        followUpTime: form.time || undefined,
+      };
+
+      const token = localStorage.getItem("crm_token");
+      const { data } = await axios.post(`${API_URL}/api/followups`, newFUBody, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setFollowUps(prev => [...prev, { ...data, id: data._id }]);
+      setForm({ leadId: "", assignedTo: "", date: "", time: "", notes: "", followUpType: "" });
+      setOpen(false);
+      toast.success("Follow-up scheduled");
+    } catch (error) {
+      console.error("Error creating follow-up:", error);
+      toast.error("Failed to schedule follow-up");
+    }
   };
 
-  const toggleComplete = (id: string) => {
-    const updated = followUps.map((f) => (f.id === id ? { ...f, completed: !f.completed } : f));
-    setFollowUps(updated);
-    store.saveFollowUps(updated);
+  const toggleComplete = async (id: string) => {
+    try {
+      const fu = followUps.find(f => f.id === id);
+      if (!fu) return;
+
+      const token = localStorage.getItem("crm_token");
+      await axios.put(`${API_URL}/api/followups/${id}`, { completed: !fu.completed }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setFollowUps(prev => prev.map((f) => (f.id === id ? { ...f, completed: !f.completed } : f)));
+      toast.success(fu.completed ? "Marked as pending" : "Marked as completed");
+    } catch (error) {
+      console.error("Error updating follow-up:", error);
+      toast.error("Failed to update follow-up");
+    }
   };
 
   const today = new Date().toISOString().split("T")[0];

@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { store } from "@/lib/mock-data";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import axios from "axios";
 import { Lead, LeadActivity, WalkInStatus, CounselingOutcome, FeeCommitment, DocumentStatus, JoiningFailureReason, FollowUpType } from "@/lib/types";
 import {
   MASTER_COUNSELING_OUTCOMES, MASTER_FEE_COMMITMENTS, MASTER_DOCUMENT_STATUS,
@@ -39,13 +39,43 @@ function daysBetween(a: string, b: string) {
   return Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000));
 }
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 export default function CounselingPage() {
   const { currentUser } = useAuth();
-  const [leads, setLeads] = useState<Lead[]>(store.getLeads());
-  const [followUps, setFollowUps] = useState(store.getFollowUps());
-  const admissions = store.getAdmissions();
-  const users = store.getUsers();
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [followUps, setFollowUps] = useState<any[]>([]);
+  const [admissions, setAdmissions] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const today = new Date().toISOString().split("T")[0];
+
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const token = localStorage.getItem("crm_token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const [leadsRes, fuRes, admRes, usersRes] = await Promise.all([
+        axios.get(`${API_URL}/api/leads`, { headers }),
+        axios.get(`${API_URL}/api/followups`, { headers }),
+        axios.get(`${API_URL}/api/admissions`, { headers }),
+        axios.get(`${API_URL}/api/users`, { headers })
+      ]);
+      setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+      setFollowUps(fuRes.data.map((f: any) => ({ ...f, id: f._id })));
+      setAdmissions(admRes.data.map((a: any) => ({ ...a, id: a._id })));
+      setUsers(usersRes.data.map((u: any) => ({ ...u, id: u._id })));
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast.error("Failed to fetch data");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [activeTab, setActiveTab] = useState("walkins");
@@ -114,21 +144,36 @@ export default function CounselingPage() {
     return Array.from(m.entries()).map(([name, value]) => ({ name, value }));
   }, [myLeads]);
 
-  const updateLead = (updated: Lead) => {
-    const all = leads.map((l) => l.id === updated.id ? updated : l);
-    setLeads(all);
-    store.saveLeads(all);
+  const updateLead = async (updated: Lead) => {
+    try {
+      const token = localStorage.getItem("crm_token");
+      const { data } = await axios.put(`${API_URL}/api/leads/${updated.id}`, updated, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const mapped = { ...data, id: data._id };
+      setLeads(all => all.map((l) => l.id === mapped.id ? mapped : l));
+    } catch (error) {
+      console.error("Error updating lead:", error);
+      toast.error("Failed to update lead");
+    }
   };
 
-  const addFollowUp = (leadId: string, date: string, type: string, notes: string) => {
-    const fu = {
-      id: `f${Date.now()}`, leadId, assignedTo: counselorId,
-      date, notes, completed: false, createdAt: today,
-      followUpType: type as FollowUpType || undefined,
-    };
-    const updated = [...followUps, fu];
-    setFollowUps(updated);
-    store.saveFollowUps(updated);
+  const addFollowUp = async (leadId: string, date: string, type: string, notes: string) => {
+    try {
+      const token = localStorage.getItem("crm_token");
+      const newFU = {
+        leadId, assignedTo: counselorId,
+        date, notes, completed: false,
+        followUpType: type as FollowUpType || undefined,
+      };
+      const { data } = await axios.post(`${API_URL}/api/followups`, newFU, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setFollowUps(prev => [...prev, { ...data, id: data._id }]);
+    } catch (error) {
+      console.error("Error adding follow-up:", error);
+      toast.error("Failed to schedule follow-up");
+    }
   };
 
   return (
@@ -473,7 +518,7 @@ export default function CounselingPage() {
    COUNSELING WORKSPACE — Detail panel for a single lead
    ═══════════════════════════════════════════════════════════════ */
 function CounselingWorkspace({ lead, users, onUpdate, onAddFollowUp }: {
-  lead: Lead; users: ReturnType<typeof store.getUsers>;
+  lead: Lead; users: any[];
   onUpdate: (l: Lead) => void;
   onAddFollowUp: (leadId: string, date: string, type: string, notes: string) => void;
 }) {
@@ -500,11 +545,11 @@ function CounselingWorkspace({ lead, users, onUpdate, onAddFollowUp }: {
   const markWalkInCompleted = () => {
     const now = new Date();
     const activities: LeadActivity[] = [...(lead.activities || []), {
-      id: `act${Date.now()}`, leadId: lead.id, type: "Walk-in Completed",
+      leadId: lead.id, type: "Walk-in Completed",
       description: "Walk-in counseling session completed",
       timestamp: now.toISOString(),
     }, {
-      id: `act${Date.now() + 1}`, leadId: lead.id, type: "Ownership Transfer",
+      leadId: lead.id, type: "Ownership Transfer",
       description: `Lead ownership transferred to counselor ${users.find((u) => u.id === (lead.walkInCounselor || lead.assignedCounselor))?.name || ""}`,
       timestamp: new Date(now.getTime() + 1000).toISOString(),
     }];
@@ -518,7 +563,7 @@ function CounselingWorkspace({ lead, users, onUpdate, onAddFollowUp }: {
 
   const markNoShow = () => {
     const activities: LeadActivity[] = [...(lead.activities || []), {
-      id: `act${Date.now()}`, leadId: lead.id, type: "Walk-in No Show",
+      leadId: lead.id, type: "Walk-in No Show",
       description: "Student did not show up for scheduled walk-in",
       timestamp: new Date().toISOString(),
     }];
@@ -529,7 +574,7 @@ function CounselingWorkspace({ lead, users, onUpdate, onAddFollowUp }: {
   const saveCounselingOutcome = () => {
     if (!counselingOutcome) return;
     const activities: LeadActivity[] = [...(lead.activities || []), {
-      id: `act${Date.now()}`, leadId: lead.id, type: "Counseling Outcome",
+      leadId: lead.id, type: "Counseling Outcome",
       description: `Counseling outcome: ${counselingOutcome}`,
       timestamp: new Date().toISOString(),
     }];
@@ -540,7 +585,7 @@ function CounselingWorkspace({ lead, users, onUpdate, onAddFollowUp }: {
   const saveDOJ = () => {
     if (!expectedDOJ || !feeCommitment) return;
     const activities: LeadActivity[] = [...(lead.activities || []), {
-      id: `act${Date.now()}`, leadId: lead.id, type: "DoJ Set",
+      leadId: lead.id, type: "DoJ Set",
       description: `Expected joining date: ${expectedDOJ} · Fee: ${feeCommitment}`,
       timestamp: new Date().toISOString(),
     }];
@@ -555,7 +600,7 @@ function CounselingWorkspace({ lead, users, onUpdate, onAddFollowUp }: {
 
   const saveDocs = () => {
     const activities: LeadActivity[] = [...(lead.activities || []), {
-      id: `act${Date.now()}`, leadId: lead.id, type: "Document Update",
+      leadId: lead.id, type: "Document Update",
       description: `Document status: ${documentStatus}`,
       timestamp: new Date().toISOString(),
     }];
@@ -567,7 +612,7 @@ function CounselingWorkspace({ lead, users, onUpdate, onAddFollowUp }: {
     if (!fuDate) return;
     onAddFollowUp(lead.id, fuDate, fuType, fuNotes);
     const activities: LeadActivity[] = [...(lead.activities || []), {
-      id: `act${Date.now()}`, leadId: lead.id, type: "Follow-up Scheduled",
+      leadId: lead.id, type: "Follow-up Scheduled",
       description: `Counselor follow-up: ${fuType || "Call"} on ${fuDate}`,
       timestamp: new Date().toISOString(),
     }];
@@ -579,7 +624,7 @@ function CounselingWorkspace({ lead, users, onUpdate, onAddFollowUp }: {
   const saveFailureReason = () => {
     if (!failureReason) return;
     const activities: LeadActivity[] = [...(lead.activities || []), {
-      id: `act${Date.now()}`, leadId: lead.id, type: "Joining Failed",
+      leadId: lead.id, type: "Joining Failed",
       description: `Joining failure: ${failureReason}`,
       timestamp: new Date().toISOString(),
     }];

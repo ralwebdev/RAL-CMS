@@ -50,7 +50,7 @@ export interface Course {
 }
 
 export interface LeadActivity {
-  id: string;
+  id?: string;
   leadId: string;
   type: string;
   description: string;
@@ -60,7 +60,7 @@ export interface LeadActivity {
 }
 
 export interface LeadTransfer {
-  id: string;
+  id?: string;
   fromUserId: string;
   toUserId: string;
   reason: TransferReason;
@@ -76,7 +76,7 @@ export interface QualificationChecklist {
 }
 
 export interface AdCreative {
-  id: string;
+  id?: string;
   adType: AdType;
   creativeHook: string;
   primaryMessage: string;
@@ -84,7 +84,7 @@ export interface AdCreative {
 }
 
 export interface AdSet {
-  id: string;
+  id?: string;
   campaignId: string;
   name: string;
   audienceType: AudienceType;
@@ -102,7 +102,7 @@ export interface UTMTracking {
 }
 
 export interface LandingPage {
-  id: string;
+  id?: string;
   campaignId: string;
   url: string;
   pageVersion: string;
@@ -316,7 +316,7 @@ export type PaymentStatus = "Pending" | "Partial" | "Paid";
 export type PaymentType = "Admission Fee" | "Seat Booking" | "Registration" | "EMI" | "Full Payment";
 
 export interface PaymentHistoryEntry {
-  id: string;
+  id?: string;
   paymentDate: string;
   amountPaid: number;
   paymentMode: PaymentMode;

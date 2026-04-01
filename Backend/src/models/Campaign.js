@@ -31,13 +31,13 @@ const LandingPageSchema = new mongoose.Schema({
 
 const CampaignSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  platform: { 
-    type: String, 
+  platform: {
+    type: String,
     required: true,
     enum: ["Meta", "Google", "LinkedIn", "YouTube", "Referral", "Offline Event"]
   },
-  objective: { 
-    type: String, 
+  objective: {
+    type: String,
     required: true,
     enum: ["Lead Generation", "Brand Awareness", "Webinar", "Course Promotion"]
   },
@@ -52,11 +52,11 @@ const CampaignSchema = new mongoose.Schema({
   educationLevel: { type: String, default: '' },
   interestCategory: { type: String, default: '' },
   targetCity: { type: String, default: '' },
-  marketingManager: { type: String, default: '' },
-  campaignOwner: { type: String, default: '' },
+  marketingManager: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  campaignOwner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   campaignNotes: { type: String, default: '' },
-  approvalStatus: { 
-    type: String, 
+  approvalStatus: {
+    type: String,
     required: true,
     enum: ["Draft", "Active", "Paused", "Completed", "Archived"],
     default: "Draft"

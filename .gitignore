@@ -45,3 +45,5 @@ backend/*.sw?
 # Environment variables
 frontend/.env
 backend/.env
+
+issue: userSeeding should be done with hashed password
