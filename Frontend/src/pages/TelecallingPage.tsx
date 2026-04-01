@@ -8,6 +8,7 @@ import {
   MASTER_CALL_OUTCOMES, MASTER_OBJECTIONS, MASTER_FOLLOWUP_TYPES,
   MASTER_CAREER_GOALS, MASTER_LEAD_MOTIVATIONS, MASTER_COURSE_NAMES,
 } from "@/lib/master-schema";
+import { TelecallerLeadForm } from "@/components/TelecallerLeadForm";
 import { Button } from "@/components/ui/button";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { Input } from "@/components/ui/input";
@@ -132,6 +133,7 @@ export default function TelecallingPage() {
   const [activeTab, setActiveTab] = useState("queue");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showOutcomeForm, setShowOutcomeForm] = useState(false);
+  const [showNewLeadDialog, setShowNewLeadDialog] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
   // Call outcome form state
@@ -297,6 +299,24 @@ export default function TelecallingPage() {
     setShowOutcomeForm(false);
     setOutcomeForm({ outcome: "", notes: "", notInterestedReason: "", followUpDate: "", followUpTime: "", followUpType: "", callbackDate: "", callbackTime: "", insight: {}, scheduleWalkIn: false, walkInDate: "", walkInTime: "" });
     setOutcomeError("");
+  };
+
+  const handleCreateLead = async (leadData: any) => {
+    try {
+      const token = localStorage.getItem("crm_token");
+      const res = await axios.post(`${API_URL}/api/leads`, leadData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const createdLead = { ...res.data, id: res.data._id };
+      setLeads(prev => [createdLead, ...prev]);
+      setShowNewLeadDialog(false);
+      showToast("New lead registered and assigned to you.");
+      // Refresh data to ensure all counts are updated
+      fetchData();
+    } catch (error) {
+      console.error("Error creating lead:", error);
+      throw error;
+    }
   };
 
   const startCall = () => {
@@ -500,10 +520,29 @@ export default function TelecallingPage() {
         </div>
       )}
 
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Telecalling</h1>
-        <p className="text-sm text-muted-foreground">Welcome, {user.name}</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Telecalling</h1>
+          <p className="text-sm text-muted-foreground">Welcome, {user.name}</p>
+        </div>
+        <Button onClick={() => setShowNewLeadDialog(true)} className="w-full sm:w-auto">
+          <Users className="h-4 w-4 mr-2" /> Register New Lead
+        </Button>
       </div>
+
+      {/* New Lead Dialog */}
+      <Dialog open={showNewLeadDialog} onOpenChange={setShowNewLeadDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Register New Inquiry</DialogTitle>
+          </DialogHeader>
+          <TelecallerLeadForm 
+            currentUser={user} 
+            onSave={handleCreateLead} 
+            onCancel={() => setShowNewLeadDialog(false)} 
+          />
+        </DialogContent>
+      </Dialog>
 
       {/* Top stat cards */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">

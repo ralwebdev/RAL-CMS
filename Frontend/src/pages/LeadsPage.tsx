@@ -837,13 +837,17 @@ export default function LeadsPage() {
       const existingInSystem = leads.find(l => l.id === lead.id);
       
       if (existingInSystem) {
-        const res = await axios.put(`${API_URL}/api/leads/${lead.id}`, leadData);
+        const res = await axios.put(`${API_URL}/api/leads/${lead.id}`, leadData, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
+        });
         data = res.data;
         const updatedMapped = { ...data, id: data._id };
         setLeads(leads.map((l) => (l.id === updatedMapped.id ? updatedMapped : l)));
         toast.success("Lead re-assigned successfully.");
       } else {
-        const res = await axios.post(`${API_URL}/api/leads`, leadData);
+        const res = await axios.post(`${API_URL}/api/leads`, leadData, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
+        });
         data = res.data;
         setLeads([...leads, { ...data, id: data._id }]);
         toast.success("Lead created successfully.");
@@ -858,7 +862,9 @@ export default function LeadsPage() {
   const handleUpdateLead = async (updated: Lead) => {
     try {
       const { id, ...leadData } = updated;
-      const { data } = await axios.put(`${API_URL}/api/leads/${updated.id}`, leadData);
+      const { data } = await axios.put(`${API_URL}/api/leads/${updated.id}`, leadData, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
+      });
       const updatedMapped = { ...data, id: data._id };
       setLeads(leads.map((l) => (l.id === updatedMapped.id ? updatedMapped : l)));
       setSelectedLead(updatedMapped);
@@ -884,6 +890,8 @@ export default function LeadsPage() {
       const { data } = await axios.put(`${API_URL}/api/leads/${leadId}`, {
         status: newStatus,
         activities: [...(lead.activities || []), activity],
+      }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
       });
 
       const updatedMapped = { ...data, id: data._id };
