@@ -16,7 +16,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, AreaChart, Area
 } from "recharts";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import axios from "axios";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const CHART_COLORS = [
   "hsl(358, 78%, 51%)", "hsl(38, 92%, 50%)", "hsl(142, 71%, 45%)",
@@ -32,10 +35,42 @@ function daysBetween(a: string, b: string) {
    ═══════════════════════════════════════════════════════════════ */
 function TelecallerDashboard() {
   const { currentUser } = useAuth();
-  const leads = store.getLeads();
-  const callLogs = store.getCallLogs();
-  const followUps = store.getFollowUps();
+  const [leads, setLeads] = useState<any[]>([]);
+  const [callLogs, setCallLogs] = useState<any[]>([]);
+  const [followUps, setFollowUps] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const token = localStorage.getItem("crm_token");
+        const headers = { Authorization: `Bearer ${token}` };
+        const [leadsRes, callLogsRes, followUpsRes] = await Promise.all([
+          axios.get(`${API_URL}/api/leads`, { headers }),
+          axios.get(`${API_URL}/api/calllogs`, { headers }),
+          axios.get(`${API_URL}/api/followups`, { headers })
+        ]);
+        setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+        setCallLogs(callLogsRes.data.map((c: any) => ({ ...c, id: c._id })));
+        setFollowUps(followUpsRes.data.map((f: any) => ({ ...f, id: f._id })));
+      } catch (error) {
+        console.error("Error fetching telecaller data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
   const today = new Date().toISOString().split("T")[0];
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   const myLeads = leads.filter((l) => l.assignedTelecallerId === currentUser!.id);
   const activeLeads = myLeads.filter((l) => l.status !== "Admission" && l.status !== "Lost");
@@ -97,11 +132,11 @@ function TelecallerDashboard() {
           <h3 className="mb-3 text-sm font-semibold text-card-foreground flex items-center gap-2"><Calendar className="h-4 w-4 text-warning" /> Follow-ups Due Today</h3>
           <div className="space-y-2">
             {myFollowUps.slice(0, 5).map((f) => {
-              const lead = leads.find((l) => l.id === f.leadId);
+              const leadName = (f.leadId && typeof f.leadId === 'object') ? f.leadId.name : leads.find((l) => l.id === f.leadId)?.name;
               return (
                 <div key={f.id} className="flex items-center justify-between rounded-lg border p-3">
                   <div>
-                    <p className="text-sm font-medium text-card-foreground">{lead?.name || "Unknown"}</p>
+                    <p className="text-sm font-medium text-card-foreground">{leadName || "Unknown"}</p>
                     <p className="text-xs text-muted-foreground">{f.notes}</p>
                   </div>
                   <Badge variant="outline" className="text-[10px]">{f.date}</Badge>
