@@ -259,13 +259,36 @@ function CounselorDashboard() {
    MARKETING DASHBOARD
    ═══════════════════════════════════════════════════════════════ */
 function MarketingDashboard() {
-  const campaigns = store.getCampaigns();
-  const leads = store.getLeads();
-  const admissions = store.getAdmissions();
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [leads, setLeads] = useState<any[]>([]);
+  const [admissions, setAdmissions] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const token = localStorage.getItem("crm_token");
+        const headers = { Authorization: `Bearer ${token}` };
+        const [campaignsRes, leadsRes, admissionsRes] = await Promise.all([
+          axios.get(`${API_URL}/api/campaigns`, { headers }),
+          axios.get(`${API_URL}/api/leads`, { headers }),
+          axios.get(`${API_URL}/api/admissions`, { headers })
+        ]);
+        setCampaigns(campaignsRes.data.map((c: any) => ({ ...c, id: c._id })));
+        setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+        setAdmissions(admissionsRes.data.map((a: any) => ({ ...a, id: a._id })));
+      } catch (error) {
+        console.error("Error fetching marketing data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   const totalSpend = campaigns.reduce((s, c) => s + (c.budget || 0), 0);
-  const totalLeads = campaigns.reduce((s, c) => s + (c.leadsGenerated || 0), 0);
-  const avgCPL = totalLeads > 0 ? Math.round(totalSpend / totalLeads) : 0;
+  const totalLeadsGenerated = campaigns.reduce((s, c) => s + (c.leadsGenerated || 0), 0);
+  const avgCPL = totalLeadsGenerated > 0 ? Math.round(totalSpend / totalLeadsGenerated) : 0;
   const totalRevenue = admissions.reduce((s, a) => s + (a.totalFee || 0), 0);
   const roas = totalSpend > 0 ? (totalRevenue / totalSpend).toFixed(1) : "0";
   const cac = admissions.length > 0 ? Math.round(totalSpend / admissions.length) : 0;
@@ -282,6 +305,14 @@ function MarketingDashboard() {
 
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -290,7 +321,7 @@ function MarketingDashboard() {
       </div>
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
         <StatCard title="Campaign Spend" value={`₹${totalSpend.toLocaleString()}`} icon={<DollarSign className="h-5 w-5" />} />
-        <StatCard title="Leads Generated" value={totalLeads} icon={<Users className="h-5 w-5" />} />
+        <StatCard title="Leads Generated" value={totalLeadsGenerated} icon={<Users className="h-5 w-5" />} />
         <StatCard title="Cost Per Lead" value={`₹${avgCPL}`} icon={<TrendingUp className="h-5 w-5" />} />
         <StatCard title="ROAS" value={`${roas}x`} icon={<BarChart3 className="h-5 w-5" />} />
         <StatCard title="CAC" value={`₹${cac.toLocaleString()}`} icon={<Target className="h-5 w-5" />} />
