@@ -18,3 +18,19 @@ export const createAdmission = async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+export const updateAdmission = async (req, res) => {
+  try {
+    const admission = await Admission.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+    if (!admission) {
+      return res.status(404).json({ message: 'Admission not found' });
+    }
+    res.json(admission);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};

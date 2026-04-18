@@ -363,6 +363,7 @@ export default function AdmissionsPage() {
         batch: form.batch,
         admissionDate: form.admissionDate,
         totalFee: parseFloat(form.totalFee) || 0,
+        feePaid: 0,
         paymentStatus: form.paymentStatus,
         parentName: form.parentName,
         parentPhone: form.parentPhone,
