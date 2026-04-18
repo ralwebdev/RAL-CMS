@@ -8,7 +8,6 @@ import {
   MASTER_CALL_OUTCOMES, MASTER_OBJECTIONS, MASTER_FOLLOWUP_TYPES,
   MASTER_CAREER_GOALS, MASTER_LEAD_MOTIVATIONS, MASTER_COURSE_NAMES,
 } from "@/lib/master-schema";
-import { TelecallerLeadForm } from "@/components/TelecallerLeadForm";
 import { FollowUpTable } from "@/components/FollowUpTable";
 import { Button } from "@/components/ui/button";
 import { KanbanBoard } from "@/components/KanbanBoard";
@@ -301,23 +300,7 @@ export default function TelecallingPage() {
     setOutcomeError("");
   };
 
-  const handleCreateLead = async (leadData: any) => {
-    try {
-      const token = localStorage.getItem("crm_token");
-      const res = await axios.post(`${API_URL}/api/leads`, leadData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const createdLead = { ...res.data, id: res.data._id };
-      setLeads(prev => [createdLead, ...prev]);
-      setShowNewLeadDialog(false);
-      showToast("New lead registered and assigned to you.");
-      // Refresh data to ensure all counts are updated
-      fetchData();
-    } catch (error) {
-      console.error("Error creating lead:", error);
-      throw error;
-    }
-  };
+
 
   const startCall = () => {
     setShowOutcomeForm(true);
