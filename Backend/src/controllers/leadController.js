@@ -1,11 +1,13 @@
 import Lead from '../models/Lead.js';
-
-// @desc    Get all leads
 // @route   GET /api/leads
 // @access  Public
 export const getLeads = async (req, res) => {
   try {
-    const leads = await Lead.find();
+    let query = {};
+    if (req.user && req.user.role === 'counselor') {
+      query.assignedCounselor = req.user._id;
+    }
+    const leads = await Lead.find(query);
     res.json(leads);
   } catch (error) {
     res.status(500).json({ message: error.message });

@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
-import { store, COURSE_FEE_TIERS, getFeeBand } from "@/lib/mock-data";
+import { useMemo, useState, useEffect } from "react";
+import axios from "axios";
+import { useAuth } from "@/lib/auth-context";
+import { COURSE_FEE_TIERS, getFeeBand } from "@/lib/mock-data";
 import { MASTER_COURSES } from "@/lib/master-schema";
 import { StatCard } from "@/components/StatCard";
 import { Badge } from "@/components/ui/badge";
@@ -21,36 +23,83 @@ import {
   PieChart, Pie, Cell, LineChart, Line,
 } from "recharts";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 const CHART_COLORS = [
   "hsl(358, 78%, 51%)", "hsl(38, 92%, 50%)", "hsl(142, 71%, 45%)",
   "hsl(220, 70%, 55%)", "hsl(280, 60%, 55%)", "hsl(180, 60%, 45%)",
   "hsl(320, 70%, 50%)", "hsl(45, 90%, 45%)",
 ];
 
-const STORAGE_KEY = "crm_revenue_targets";
-
-function getTargets() {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) return JSON.parse(stored);
-  return { monthlyTarget: 600000, roasTarget: 10, maxCPA: 6500 };
-}
-function saveTargets(t: { monthlyTarget: number; roasTarget: number; maxCPA: number }) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(t));
-}
-
 export default function RevenueAnalyticsPage() {
-  const campaigns = store.getCampaigns();
-  const leads = store.getLeads();
-  const admissions = store.getAdmissions();
-  const callLogs = store.getCallLogs();
-  const followUps = store.getFollowUps();
-  const users = store.getUsers();
-  const courses = store.getCourses();
+  const [leads, setLeads] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [admissions, setAdmissions] = useState<any[]>([]);
+  const [callLogs, setCallLogs] = useState<any[]>([]);
+  const [followUps, setFollowUps] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [targets, setTargets] = useState(getTargets);
+  const courses = MASTER_COURSES.map(c => ({ name: c.course_name, fee: c.course_fee }));
+
+  const [targets, setTargets] = useState({ monthlyTarget: 600000, roasTarget: 10, maxCPA: 6500 });
+  const [prevMonthTargets, setPrevMonthTargets] = useState({ monthlyTarget: 600000, roasTarget: 10, maxCPA: 6500 });
+  const [monthKeys, setMonthKeys] = useState({ current: "", previous: "" });
+  
   const [editingTargets, setEditingTargets] = useState(false);
   const [tempTargets, setTempTargets] = useState(targets);
   const [activeTab, setActiveTab] = useState("overview");
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoading(true);
+        const token = localStorage.getItem("crm_token");
+        const headers = { Authorization: `Bearer ${token}` };
+        
+        const response = await axios.get(`${API_URL}/api/revenue/dashboard`, { headers });
+        const { leads, admissions, campaigns, callLogs, followUps, users, targets, monthKeys } = response.data;
+        
+        setLeads(leads.map((l: any) => ({ ...l, id: l._id })));
+        setAdmissions(admissions.map((a: any) => ({ ...a, id: a._id })));
+        setCampaigns(campaigns.map((c: any) => ({ ...c, id: c._id })));
+        setCallLogs(callLogs.map((cl: any) => ({ ...cl, id: cl._id })));
+        setFollowUps(followUps.map((f: any) => ({ ...f, id: f._id })));
+        setUsers(users.map((u: any) => ({ ...u, id: u._id })));
+        setTargets(targets.current);
+        setPrevMonthTargets(targets.previous);
+        setMonthKeys(monthKeys);
+        setTempTargets(targets.current);
+      } catch (error) {
+        console.error("Error fetching revenue data:", error);
+        toast.error("Failed to sync with database.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const handleSaveTargets = async () => {
+    try {
+      const token = localStorage.getItem("crm_token");
+      const headers = { Authorization: `Bearer ${token}` };
+      
+      const response = await axios.put(`${API_URL}/api/revenue/targets`, {
+        month: monthKeys.current,
+        monthlyTarget: tempTargets.monthlyTarget,
+        roasTarget: tempTargets.roasTarget,
+        maxCPA: tempTargets.maxCPA
+      }, { headers });
+      
+      setTargets(response.data);
+      setEditingTargets(false);
+      toast.success("Revenue targets sync'd to database.");
+    } catch (error) {
+      console.error("Error saving targets:", error);
+      toast.error("Failed to save targets.");
+    }
+  };
 
   // Core metrics
   const totalRevenue = admissions.reduce((s, a) => s + (a.totalFee || 0), 0);
@@ -62,6 +111,27 @@ export default function RevenueAnalyticsPage() {
   const revenueRemaining = Math.max(0, targets.monthlyTarget - totalRevenue);
   const roasOnTrack = roas >= targets.roasTarget;
   const cpaOnTrack = cpa <= targets.maxCPA || admissions.length === 0;
+
+  // MoM Analysis
+  const momStats = useMemo(() => {
+    if (!monthKeys.current || !monthKeys.previous) return null;
+    
+    const currentAdm = admissions.filter(a => a.admissionDate.startsWith(monthKeys.current));
+    const prevAdm = admissions.filter(a => a.admissionDate.startsWith(monthKeys.previous));
+    
+    const currRev = currentAdm.reduce((s, a) => s + (a.totalFee || 0), 0);
+    const prevRev = prevAdm.reduce((s, a) => s + (a.totalFee || 0), 0);
+    
+    const revChange = prevRev > 0 ? ((currRev - prevRev) / prevRev) * 100 : 0;
+    const admChange = prevAdm.length > 0 ? ((currentAdm.length - prevAdm.length) / prevAdm.length) * 100 : 0;
+    
+    return {
+      revChange: +revChange.toFixed(1),
+      admChange: +admChange.toFixed(1),
+      prevRev,
+      prevAdmCount: prevAdm.length
+    };
+  }, [admissions, monthKeys]);
 
   // Course priority scoring
   const coursePriority = useMemo(() => {
@@ -239,12 +309,13 @@ export default function RevenueAnalyticsPage() {
     return items.slice(0, 6);
   }, [coursePriority, platformROAS, tcPerf, counselorPerf]);
 
-  const handleSaveTargets = () => {
-    setTargets(tempTargets);
-    saveTargets(tempTargets);
-    setEditingTargets(false);
-    toast.success("Revenue targets updated.");
-  };
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -297,10 +368,20 @@ export default function RevenueAnalyticsPage() {
 
       {/* KPI Ribbon */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
-        <StatCard title="Revenue" value={`₹${(totalRevenue / 100000).toFixed(1)}L`} icon={<DollarSign className="h-5 w-5" />} trend={totalRevenue >= targets.monthlyTarget ? "Target met ✓" : undefined} />
-        <StatCard title="Target" value={`₹${(targets.monthlyTarget / 100000).toFixed(0)}L`} icon={<Target className="h-5 w-5" />} />
+        <StatCard 
+          title="Revenue" 
+          value={`₹${(totalRevenue / 100000).toFixed(1)}L`} 
+          icon={<DollarSign className="h-5 w-5" />} 
+          trend={momStats ? `${momStats.revChange >= 0 ? "+" : ""}${momStats.revChange}% vs last month` : undefined} 
+        />
+        <StatCard title="Target" value={`₹${(targets.monthlyTarget / 100000).toFixed(0)}L`} icon={<Target className="h-5 w-5" />} trend="Database Sync Active" />
         <StatCard title="Remaining" value={`₹${(revenueRemaining / 100000).toFixed(1)}L`} icon={<TrendingUp className="h-5 w-5" />} />
-        <StatCard title="Admissions" value={admissions.length} icon={<GraduationCap className="h-5 w-5" />} trend={`Need ${Math.max(0, admissionsNeeded - admissions.length)} more`} />
+        <StatCard 
+          title="Admissions" 
+          value={admissions.length} 
+          icon={<GraduationCap className="h-5 w-5" />} 
+          trend={momStats ? `${momStats.admChange >= 0 ? "+" : ""}${momStats.admChange}% vs last month` : undefined} 
+        />
         <StatCard title="ROAS" value={`${roas.toFixed(1)}x`} icon={<BarChart3 className="h-5 w-5" />} trend={roasOnTrack ? `≥${targets.roasTarget}x ✓` : `< ${targets.roasTarget}x ✗`} className={roasOnTrack ? "" : "border-destructive/20"} />
         <StatCard title="CPA" value={`₹${cpa.toLocaleString()}`} icon={<Target className="h-5 w-5" />} trend={cpaOnTrack ? `≤₹${targets.maxCPA} ✓` : `> ₹${targets.maxCPA} ✗`} className={cpaOnTrack ? "" : "border-destructive/20"} />
         <StatCard title="Avg Ticket" value={`₹${avgTicket.toLocaleString()}`} icon={<Star className="h-5 w-5" />} />

@@ -18,6 +18,7 @@ import {
 } from "recharts";
 import { useMemo, useState, useEffect } from "react";
 import axios from "axios";
+import { MASTER_COURSES } from "@/lib/master-schema";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -155,10 +156,33 @@ function TelecallerDashboard() {
    ═══════════════════════════════════════════════════════════════ */
 function CounselorDashboard() {
   const { currentUser } = useAuth();
-  const leads = store.getLeads();
-  const admissions = store.getAdmissions();
-  const followUps = store.getFollowUps();
+  const [leads, setLeads] = useState<any[]>([]);
+  const [admissions, setAdmissions] = useState<any[]>([]);
+  const [followUps, setFollowUps] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const today = new Date().toISOString().split("T")[0];
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const token = localStorage.getItem("crm_token");
+        const headers = { Authorization: `Bearer ${token}` };
+        const [leadsRes, admissionsRes, followUpsRes] = await Promise.all([
+          axios.get(`${API_URL}/api/leads`, { headers }),
+          axios.get(`${API_URL}/api/admissions`, { headers }),
+          axios.get(`${API_URL}/api/followups`, { headers })
+        ]);
+        setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+        setAdmissions(admissionsRes.data.map((a: any) => ({ ...a, id: a._id })));
+        setFollowUps(followUpsRes.data.map((f: any) => ({ ...f, id: f._id })));
+      } catch (error) {
+        console.error("Error fetching counselor data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   const myLeads = leads.filter((l) => l.assignedCounselor === currentUser!.id);
   const pendingCounseling = myLeads.filter((l) => l.status === "Counseling");
@@ -167,8 +191,8 @@ function CounselorDashboard() {
   const scholarshipReqs = leads.filter((l) => l.scholarshipApplied && l.status !== "Admission" && l.status !== "Lost");
   const emiLeads = leads.filter((l) => l.emiSelected && l.status !== "Admission" && l.status !== "Lost");
   const highTicket = leads.filter((l) => {
-    const course = store.getCourses().find((c) => c.name === l.interestedCourse);
-    return course && course.fee >= 160000 && l.status !== "Admission" && l.status !== "Lost";
+    const course = MASTER_COURSES.find((c) => c.course_name === l.interestedCourse);
+    return course && course.course_fee >= 160000 && l.status !== "Admission" && l.status !== "Lost";
   });
 
   // Walk-in metrics
@@ -185,6 +209,14 @@ function CounselorDashboard() {
   // Follow-up KPIs
   const myFollowUps = followUps.filter((f) => f.assignedTo === currentUser!.id);
   const overdueFU = myFollowUps.filter((f) => !f.completed && f.date < today);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

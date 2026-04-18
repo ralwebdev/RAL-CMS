@@ -9,6 +9,7 @@ import userRoutes from './routes/userRoutes.js';
 import callLogRoutes from './routes/callLogRoutes.js';
 import followUpRoutes from './routes/followUpRoutes.js';
 import admissionRoutes from './routes/admissionRoutes.js';
+import revenueRoutes from './routes/revenueRoutes.js';
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/calllogs', callLogRoutes);
 app.use('/api/followups', followUpRoutes);
 app.use('/api/admissions', admissionRoutes);
+app.use('/api/revenue', revenueRoutes);
 
 app.get('/', (req, res) => {
   res.send('API is running...');
