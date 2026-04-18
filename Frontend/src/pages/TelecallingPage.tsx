@@ -134,7 +134,6 @@ export default function TelecallingPage() {
   const [activeTab, setActiveTab] = useState("queue");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showOutcomeForm, setShowOutcomeForm] = useState(false);
-  const [showNewLeadDialog, setShowNewLeadDialog] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
   // Call outcome form state
@@ -542,24 +541,7 @@ export default function TelecallingPage() {
           <h1 className="text-2xl font-bold text-foreground">Telecalling</h1>
           <p className="text-sm text-muted-foreground">Welcome, {user.name}</p>
         </div>
-        <Button onClick={() => setShowNewLeadDialog(true)} className="w-full sm:w-auto">
-          <Users className="h-4 w-4 mr-2" /> Register New Lead
-        </Button>
       </div>
-
-      {/* New Lead Dialog */}
-      <Dialog open={showNewLeadDialog} onOpenChange={setShowNewLeadDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Register New Inquiry</DialogTitle>
-          </DialogHeader>
-          <TelecallerLeadForm 
-            currentUser={user} 
-            onSave={handleCreateLead} 
-            onCancel={() => setShowNewLeadDialog(false)} 
-          />
-        </DialogContent>
-      </Dialog>
 
       {/* Top stat cards */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">

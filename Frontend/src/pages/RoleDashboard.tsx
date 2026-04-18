@@ -327,10 +327,12 @@ function MarketingDashboard() {
 
   const sourceData = useMemo(() => {
     const m = new Map<string, { leads: number; admissions: number }>();
-    leads.forEach((l) => { const e = m.get(l.source) || { leads: 0, admissions: 0 }; e.leads++; m.set(l.source, e); });
+    const filteredLeads = leads.filter(l => l.source !== "Telecaller Inquiry");
+    
+    filteredLeads.forEach((l) => { const e = m.get(l.source) || { leads: 0, admissions: 0 }; e.leads++; m.set(l.source, e); });
     admissions.forEach((a) => {
       const lead = leads.find((l) => l.id === a.leadId);
-      if (lead) { const e = m.get(lead.source) || { leads: 0, admissions: 0 }; e.admissions++; m.set(lead.source, e); }
+      if (lead && lead.source !== "Telecaller Inquiry") { const e = m.get(lead.source) || { leads: 0, admissions: 0 }; e.admissions++; m.set(lead.source, e); }
     });
     return Array.from(m.entries()).map(([source, d]) => ({ source, ...d }));
   }, [leads, admissions]);
@@ -435,7 +437,8 @@ function TelecallingManagerDashboard() {
   const telecallers = users.filter((u) => u.role === "telecaller");
   const conversionData = admissions.map((adm) => {
     const lead = leads.find((l) => l.id === adm.leadId);
-    return lead ? { att: daysBetween(lead.createdAt, adm.admissionDate), telecallerId: lead.assignedTelecallerId } : null;
+    if (!lead || lead.source === "Telecaller Inquiry") return null;
+    return { att: daysBetween(lead.createdAt, adm.admissionDate), telecallerId: lead.assignedTelecallerId };
   }).filter(Boolean) as { att: number; telecallerId: string }[];
   const overallATT = conversionData.length > 0 ? +(conversionData.reduce((s, c) => s + c.att, 0) / conversionData.length).toFixed(1) : 0;
 
@@ -621,12 +624,14 @@ function OwnerDashboard() {
   // ── Channel Performance ──
   const channelPerf = useMemo(() => {
     const m = new Map<string, { leads: number; admissions: number; revenue: number }>();
-    leads.forEach((l) => { const e = m.get(l.source) || { leads: 0, admissions: 0, revenue: 0 }; e.leads++; m.set(l.source, e); });
+    const filteredLeadsForChannels = leads.filter(l => l.source !== "Telecaller Inquiry");
+    
+    filteredLeadsForChannels.forEach((l) => { const e = m.get(l.source) || { leads: 0, admissions: 0, revenue: 0 }; e.leads++; m.set(l.source, e); });
     admissions.forEach((a) => {
       const lead = leads.find((l) => l.id === a.leadId);
-      if (lead) { const e = m.get(lead.source) || { leads: 0, admissions: 0, revenue: 0 }; e.admissions++; e.revenue += a.totalFee || 0; m.set(lead.source, e); }
+      if (lead && lead.source !== "Telecaller Inquiry") { const e = m.get(lead.source) || { leads: 0, admissions: 0, revenue: 0 }; e.admissions++; e.revenue += a.totalFee || 0; m.set(lead.source, e); }
     });
-    const totalCRM = leads.length;
+    const totalCRM = filteredLeadsForChannels.length;
     return Array.from(m.entries()).map(([source, d]) => {
       const spend = totalCRM > 0 ? Math.round((d.leads / totalCRM) * totalSpend) : 0;
       return { source, ...d, spend, cpl: d.leads > 0 ? Math.round(spend / d.leads) : 0, cpa: d.admissions > 0 ? Math.round(spend / d.admissions) : 0 };

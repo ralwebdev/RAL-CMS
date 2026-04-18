@@ -16,7 +16,7 @@ export const MASTER_LEAD_SOURCES = [
   "Website Register Form", "Website Brochure Download",
   "Google Ads", "Meta Ads", "Instagram Organic", "YouTube",
   "Referral", "Alumni Referral", "Walk-in", "Education Fair", "Partner Institute",
-  "Telecaller Inquiry", "Walk-in Inquiry",
+  "Walk-in Inquiry",
 ] as const;
 
 export const MASTER_QUALIFICATIONS = [
