@@ -42,22 +42,28 @@ function KanbanCard({
   lead,
   onSelect,
   onDragStart,
+  isActive = false,
 }: {
   lead: Lead;
   onSelect: (l: Lead) => void;
   onDragStart: (e: React.DragEvent, leadId: string) => void;
+  isActive?: boolean;
 }) {
   return (
     <div
       draggable
       onDragStart={(e) => onDragStart(e, lead.id)}
       onClick={() => onSelect(lead)}
-      className="group rounded-lg border border-border bg-card p-2.5 cursor-grab active:cursor-grabbing
-        hover:shadow-md hover:border-primary/30 transition-all duration-150 select-none"
+      className={cn(
+        "group rounded-lg border p-2.5 cursor-grab active:cursor-grabbing transition-all duration-150 select-none bg-card",
+        isActive 
+          ? "border-primary ring-1 ring-primary/30 shadow-md translate-x-1" 
+          : "border-border hover:shadow-md hover:border-primary/30"
+      )}
     >
       <div className="flex items-start justify-between gap-1">
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-card-foreground truncate">{lead.name}</p>
+          <p className={cn("text-xs font-semibold truncate", isActive ? "text-primary" : "text-card-foreground")}>{lead.name}</p>
           <p className="text-[10px] text-muted-foreground truncate mt-0.5 flex items-center gap-1">
             <BookOpen className="h-2.5 w-2.5 shrink-0" />
             {lead.interestedCourse || "—"}
@@ -103,6 +109,7 @@ function KanbanColumn({
   isOver,
   onDragOver,
   onDragLeave,
+  selectedLeadId,
 }: {
   stage: StageConfig;
   leads: Lead[];
@@ -112,6 +119,7 @@ function KanbanColumn({
   isOver: boolean;
   onDragOver: (e: React.DragEvent, status: LeadStatus) => void;
   onDragLeave: () => void;
+  selectedLeadId?: string;
 }) {
   return (
     <div
@@ -138,7 +146,7 @@ function KanbanColumn({
       {/* Cards */}
       <div className="p-2 space-y-2 max-h-[60vh] overflow-y-auto scrollbar-thin">
         {leads.map((lead) => (
-          <KanbanCard key={lead.id} lead={lead} onSelect={onSelect} onDragStart={onDragStart} />
+          <KanbanCard key={lead.id} lead={lead} onSelect={onSelect} onDragStart={onDragStart} isActive={lead.id === selectedLeadId} />
         ))}
         {leads.length === 0 && (
           <div className={cn(
@@ -159,6 +167,7 @@ interface KanbanBoardProps {
   onLeadSelect: (lead: Lead) => void;
   onLeadStatusChange: (leadId: string, newStatus: LeadStatus) => void;
   stages?: StageConfig[];
+  selectedLeadId?: string;
 }
 
 export function KanbanBoard({

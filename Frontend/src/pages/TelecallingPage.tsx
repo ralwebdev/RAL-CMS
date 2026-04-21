@@ -1199,14 +1199,14 @@ export default function TelecallingPage() {
         <TabsContent value="pipeline" className="mt-4">
           <KanbanBoard
             leads={activeAssigned}
-            onLeadSelect={setSelectedLead}
+            selectedLeadId={selectedLead?.id}
+            onLeadSelect={(l) => { openWorkspace(l); setActiveTab("workspace"); }}
             onLeadStatusChange={async (leadId: string, newStatus: LeadStatus) => {
               try {
                 const lead = leads.find((l) => l.id === leadId);
                 if (!lead) return;
 
                 const activity = {
-                  id: `act${Date.now()}`,
                   leadId,
                   type: `Status → ${newStatus}`,
                   description: `Moved to ${newStatus} via telecaller pipeline`,
@@ -1216,11 +1216,20 @@ export default function TelecallingPage() {
                 const { data } = await axios.put(`${API_URL}/api/leads/${leadId}`, {
                   status: newStatus,
                   activities: [...(lead.activities || []), activity],
+                }, {
+                  headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
                 });
 
                 const updatedMapped = { ...data, id: data._id };
                 setLeads(leads.map((l) => (l.id === leadId ? updatedMapped : l)));
                 toast.success(`${lead.name} moved to ${newStatus}`);
+
+                // If moved to Interested or Connected, and it's the active lead, help user log follow-up
+                if ((newStatus === "Interested" || newStatus === "Connected") && selectedLead?.id === leadId) {
+                  setShowOutcomeForm(true);
+                  setOutcomeForm(prev => ({ ...prev, outcome: newStatus as any }));
+                  setActiveTab("workspace");
+                }
               } catch (error) {
                 console.error("Error updating lead status:", error);
                 toast.error("Failed to update status.");

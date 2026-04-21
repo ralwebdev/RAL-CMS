@@ -996,7 +996,18 @@ export default function LeadsPage() {
 
       {/* ─── PIPELINE VIEW ─── */}
       {view === "pipeline" && (
-        <KanbanBoard leads={leads} onLeadSelect={setSelectedLead} onLeadStatusChange={handleKanbanStatusChange} />
+        <KanbanBoard 
+          leads={leads} 
+          selectedLeadId={selectedLead?.id}
+          onLeadSelect={setSelectedLead} 
+          onLeadStatusChange={async (leadId, newStatus) => {
+            await handleKanbanStatusChange(leadId, newStatus);
+            if (newStatus === "Lost") {
+              const lead = leads.find(l => l.id === leadId);
+              if (lead) setSelectedLead({ ...lead, status: "Lost" });
+            }
+          }} 
+        />
       )}
 
       {/* ─── TABLE VIEW ─── */}
