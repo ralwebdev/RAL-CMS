@@ -14,6 +14,10 @@ import AdmissionsPage from "@/pages/AdmissionsPage";
 import CounselingPage from "@/pages/CounselingPage";
 import InstitutionalSalesPage from "@/pages/InstitutionalSalesPage";
 import RevenueAnalyticsPage from "@/pages/RevenueAnalyticsPage";
+import AccountsPage from "@/pages/AccountsPage";
+import AlliancesPage from "@/pages/AlliancesPage";
+import AllianceInstitutionProfile from "@/pages/AllianceInstitutionProfile";
+import ApprovalsPage from "@/pages/ApprovalsPage";
 import LoginPage from "@/pages/LoginPage";
 import NotFound from "@/pages/NotFound";
 
@@ -46,6 +50,10 @@ function AppRoutes() {
         <Route path="/revenue" element={<RevenueAnalyticsPage />} />
         <Route path="/institutional" element={<InstitutionalSalesPage />} />
         <Route path="/admissions" element={<AdmissionsPage />} />
+        <Route path="/accounts" element={<AccountsPage />} />
+        <Route path="/alliances" element={<AlliancesPage />} />
+        <Route path="/alliance-profile/:id" element={<AllianceInstitutionProfile />} />
+        <Route path="/approvals" element={<ApprovalsPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AppLayout>

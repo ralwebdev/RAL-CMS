@@ -2,6 +2,7 @@ import { NavLink as RouterNavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Megaphone, Users, Phone, CalendarClock,
   GraduationCap, Menu, X, LogOut, Shield, HeartHandshake, TrendingUp, Building2,
+  Wallet, Handshake, CheckSquare,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,9 @@ const iconMap: Record<string, typeof LayoutDashboard> = {
   "/institutional": Building2,
   "/follow-ups": CalendarClock,
   "/admissions": GraduationCap,
+  "/accounts": Wallet,
+  "/alliances": Handshake,
+  "/approvals": CheckSquare,
 };
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
