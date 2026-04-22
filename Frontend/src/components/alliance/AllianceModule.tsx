@@ -209,11 +209,12 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
     const m: Record<string, { meetings: number; mous: number; revenue: number }> = {};
     const executives = allianceUsers.filter(u => u.role === "alliance_executive");
     executives.forEach((u) => { m[u.id] = { meetings: 0, mous: 0, revenue: 0 }; });
-    data.visits.forEach((v) => { if (v.status === "Completed" && m[v.executiveId]) m[v.executiveId].meetings += 1; });
+    data.visits.forEach((v) => { if (v.status === "Completed" && m[getStrId(v.executiveId)]) m[getStrId(v.executiveId)].meetings += 1; });
     data.institutions.forEach((i) => {
-      if ((i.pipelineStage === "MoU Signed" || i.pipelineStage === "Program Launched") && m[i.assignedTo]) m[i.assignedTo].mous += 1;
-      const approved = data.proposals.filter((p) => p.institutionId === i.id && p.status === "Approved");
-      if (m[i.assignedTo]) m[i.assignedTo].revenue += approved.reduce((s, p) => s + p.amount, 0);
+      const assignedId = getStrId(i.assignedTo);
+      if ((i.pipelineStage === "MoU Signed" || i.pipelineStage === "Program Launched") && m[assignedId]) m[assignedId].mous += 1;
+      const approved = data.proposals.filter((p) => getStrId(p.institutionId) === i.id && p.status === "Approved");
+      if (m[assignedId]) m[assignedId].revenue += approved.reduce((s, p) => s + p.amount, 0);
     });
     return executives.map((u) => ({ name: u.name, ...m[u.id] }));
   }, [data]);
