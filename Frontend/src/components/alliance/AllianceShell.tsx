@@ -11,7 +11,7 @@
  */
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, Sparkles, X } from "lucide-react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,10 @@ import { cn } from "@/lib/utils";
 export const todayIso = () => new Date().toISOString().split("T")[0];
 export function daysBetween(later: string, earlier: string) {
   return Math.floor((new Date(later).getTime() - new Date(earlier).getTime()) / 86400000);
+}
+function getStrId(val: any): string {
+  if (typeof val === 'object' && val !== null) return val.id || val._id || String(val);
+  return String(val || "");
 }
 
 /* ───── Filter types ───── */
@@ -118,16 +122,16 @@ export function useAllianceData(opts: {
 
     return {
       institutions: inst,
-      visits: allVisits.filter((v) => ids.has(v.institutionId) && inRange(v.visitDate)),
+      visits: allVisits.filter((v) => ids.has(getStrId(v.institutionId)) && inRange(v.visitDate)),
       tasks: scope === "executive" && executiveId
-        ? allTasks.filter((t) => t.assignedTo === executiveId)
-        : allTasks.filter((t) => ids.has(t.institutionId)),
-      proposals: allProps.filter((p) => ids.has(p.institutionId) && inRange(p.sentDate)),
-      events: allEvents.filter((e) => ids.has(e.institutionId) && inRange(e.eventDate)),
+        ? allTasks.filter((t) => getStrId(t.assignedTo) === executiveId)
+        : allTasks.filter((t) => ids.has(getStrId(t.institutionId))),
+      proposals: allProps.filter((p) => ids.has(getStrId(p.institutionId)) && inRange(p.sentDate)),
+      events: allEvents.filter((e) => ids.has(getStrId(e.institutionId)) && inRange(e.eventDate)),
       expenses: scope === "executive" && executiveId
-        ? allExp.filter((e) => e.executiveId === executiveId)
-        : allExp.filter((e) => ids.has(e.institutionId)),
-      contacts: allContacts.filter((c) => ids.has(c.institutionId)),
+        ? allExp.filter((e) => getStrId(e.executiveId) === executiveId)
+        : allExp.filter((e) => ids.has(getStrId(e.institutionId))),
+      contacts: allContacts.filter((c) => ids.has(getStrId(c.institutionId))),
     };
   }, [scope, executiveId, filters, instQuery.data, visitsQuery.data, tasksQuery.data, proposalsQuery.data, eventsQuery.data, expensesQuery.data, contactsQuery.data]);
 
@@ -213,6 +217,9 @@ export function KpiCard({ title, value, icon, trend, microcopy, nudge, drawerTit
               <span className="rounded-lg bg-primary/10 p-2 text-primary">{icon}</span>
               {drawerTitle ?? title}
             </SheetTitle>
+            <SheetDescription>
+              Viewing detailed metrics and breakdown for {title.toLowerCase()}.
+            </SheetDescription>
           </SheetHeader>
           <div className="mt-4 space-y-3">
             {drawerContent ?? <p className="text-sm text-muted-foreground italic">No drilldown configured.</p>}

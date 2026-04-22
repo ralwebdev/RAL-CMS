@@ -26,7 +26,7 @@ import type {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatCard } from "@/components/StatCard";
 import { DataTable, FormEngine, StatusPill, ActivityTimeline } from "@/components/alliance/AllianceUI";
@@ -50,6 +50,10 @@ function daysBetween(a: string, b: string) {
   return Math.floor((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
 }
 function todayIso() { return new Date().toISOString().split("T")[0]; }
+function getStrId(val: any): string {
+  if (typeof val === 'object' && val !== null) return val.id || val._id || String(val);
+  return String(val || "");
+}
 
 // ── Field configs (closed-ended) ──
 const executiveOptions = allianceUsers.filter(u => u.role === "alliance_executive").map((u) => u.name);
@@ -140,12 +144,12 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
     const instIds = new Set(inst.map((i) => i.id));
     return {
       institutions: inst,
-      tasks: allTasks.filter((t) => instIds.has(t.institutionId)),
-      visits: allVisits.filter((v) => instIds.has(v.institutionId)),
-      proposals: allProposals.filter((p) => instIds.has(p.institutionId)),
-      events: allEvents.filter((e) => instIds.has(e.institutionId)),
-      expenses: allExpenses.filter((e) => instIds.has(e.institutionId)),
-      contacts: allContacts.filter((c) => instIds.has(c.institutionId)),
+      tasks: allTasks.filter((t) => instIds.has(getStrId(t.institutionId))),
+      visits: allVisits.filter((v) => instIds.has(getStrId(v.institutionId))),
+      proposals: allProposals.filter((p) => instIds.has(getStrId(p.institutionId))),
+      events: allEvents.filter((e) => instIds.has(getStrId(e.institutionId))),
+      expenses: allExpenses.filter((e) => instIds.has(getStrId(e.institutionId))),
+      contacts: allContacts.filter((c) => instIds.has(getStrId(c.institutionId))),
     };
   }, [instQuery.data, visitsQuery.data, proposalsQuery.data, tasksQuery.data, eventsQuery.data, expensesQuery.data, contactsQuery.data, stageFilter, districtFilter]);
 
@@ -301,7 +305,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
     ) },
     { key: "priority", header: "Priority", render: (r) => <StatusPill value={r.priority} />, hideOnMobile: true },
     { key: "students", header: "Students", render: (r) => <span className="font-medium">{r.studentStrength.toLocaleString()}</span>, hideOnMobile: true },
-    { key: "exec", header: "Executive", render: (r) => <span className="text-xs">{userLabelById(r.assignedTo)}</span>, hideOnMobile: true },
+    { key: "exec", header: "Executive", render: (r) => <span className="text-xs">{userLabelById(getStrId(r.assignedTo))}</span>, hideOnMobile: true },
     { key: "actions", header: "", render: (r) => (
       <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEditInstitution(r); setShowInstForm(true); }}>Edit</Button>
     ) },
@@ -309,7 +313,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
 
   const taskColumns: ColumnDef<AllianceTask>[] = [
     { key: "title", header: "Task", render: (r) => <span className="font-medium">{r.title}</span> },
-    { key: "inst", header: "Institution", render: (r) => <span className="text-xs text-muted-foreground">{data.institutions.find((i) => i.id === r.institutionId)?.name ?? "—"}</span>, hideOnMobile: true },
+    { key: "inst", header: "Institution", render: (r) => <span className="text-xs text-muted-foreground">{data.institutions.find((i) => i.id === getStrId(r.institutionId))?.name ?? "—"}</span>, hideOnMobile: true },
     { key: "due", header: "Due", render: (r) => <span className="text-xs whitespace-nowrap">{r.dueDate}</span> },
     { key: "priority", header: "Priority", render: (r) => <StatusPill value={r.priority} />, hideOnMobile: true },
     { key: "status", header: "Status", render: (r) => <StatusPill value={r.status} /> },
@@ -318,7 +322,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
 
   const visitColumns: ColumnDef<AllianceVisit>[] = [
     { key: "date", header: "Date", render: (r) => <span className="text-xs whitespace-nowrap">{r.visitDate}</span> },
-    { key: "inst", header: "Institution", render: (r) => <span className="font-medium text-xs">{data.institutions.find((i) => i.id === r.institutionId)?.name ?? "—"}</span> },
+    { key: "inst", header: "Institution", render: (r) => <span className="font-medium text-xs">{data.institutions.find((i) => i.id === getStrId(r.institutionId))?.name ?? "—"}</span> },
     { key: "person", header: "Met With", render: (r) => <span className="text-xs">{r.meetingPerson}</span>, hideOnMobile: true },
     { key: "interest", header: "Interest", render: (r) => <StatusPill value={r.interestLevel} />, hideOnMobile: true },
     { key: "status", header: "Status", render: (r) => <StatusPill value={r.status} /> },
@@ -326,7 +330,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
   ];
 
   const proposalColumns: ColumnDef<AllianceProposal>[] = [
-    { key: "inst", header: "Institution", render: (r) => <span className="font-medium text-xs">{data.institutions.find((i) => i.id === r.institutionId)?.name ?? "—"}</span> },
+    { key: "inst", header: "Institution", render: (r) => <span className="font-medium text-xs">{data.institutions.find((i) => i.id === getStrId(r.institutionId))?.name ?? "—"}</span> },
     { key: "type", header: "Type", render: (r) => <Badge variant="outline" className="text-[9px]">{r.proposalType}</Badge>, hideOnMobile: true },
     { key: "amount", header: "Amount", render: (r) => <span className="font-semibold text-success">₹{r.amount.toLocaleString()}</span> },
     { key: "sent", header: "Sent", render: (r) => <span className="text-xs whitespace-nowrap">{r.sentDate}</span>, hideOnMobile: true },
@@ -339,7 +343,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
   const eventColumns: ColumnDef<AllianceEvent>[] = [
     { key: "name", header: "Event", render: (r) => <span className="font-medium text-xs">{r.eventName}</span> },
     { key: "type", header: "Type", render: (r) => <Badge variant="outline" className="text-[9px]">{r.eventType}</Badge>, hideOnMobile: true },
-    { key: "inst", header: "Institution", render: (r) => <span className="text-xs text-muted-foreground">{data.institutions.find((i) => i.id === r.institutionId)?.name ?? "—"}</span>, hideOnMobile: true },
+    { key: "inst", header: "Institution", render: (r) => <span className="text-xs text-muted-foreground">{data.institutions.find((i) => i.id === getStrId(r.institutionId))?.name ?? "—"}</span>, hideOnMobile: true },
     { key: "date", header: "Date", render: (r) => <span className="text-xs whitespace-nowrap">{r.eventDate}</span> },
     { key: "att", header: "Attendees", render: (r) => <span className="text-xs">{r.attendees}</span>, hideOnMobile: true },
     { key: "leads", header: "Leads", render: (r) => <span className="font-semibold text-primary">{r.leadsGenerated}</span> },
@@ -348,7 +352,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
   const expenseColumns: ColumnDef<AllianceExpense>[] = [
     { key: "date", header: "Date", render: (r) => <span className="text-xs whitespace-nowrap">{r.expenseDate}</span> },
     { key: "type", header: "Type", render: (r) => <Badge variant="outline" className="text-[9px]">{r.expenseType}</Badge> },
-    { key: "exec", header: "Executive", render: (r) => <span className="text-xs">{userLabelById(r.executiveId)}</span>, hideOnMobile: true },
+    { key: "exec", header: "Executive", render: (r) => <span className="text-xs">{userLabelById(getStrId(r.executiveId))}</span>, hideOnMobile: true },
     { key: "amount", header: "Amount", render: (r) => <span className="font-semibold">₹{r.amount.toLocaleString()}</span> },
     { key: "status", header: "Status", render: (r) => <StatusPill value={r.status} /> },
   ];
@@ -356,7 +360,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
   const contactColumns: ColumnDef<AllianceContact>[] = [
     { key: "name", header: "Name", render: (r) => <span className="font-medium text-xs">{r.name}</span> },
     { key: "designation", header: "Designation", render: (r) => <span className="text-xs">{r.designation}</span>, hideOnMobile: true },
-    { key: "inst", header: "Institution", render: (r) => <span className="text-xs text-muted-foreground">{data.institutions.find((i) => i.id === r.institutionId)?.name ?? "—"}</span> },
+    { key: "inst", header: "Institution", render: (r) => <span className="text-xs text-muted-foreground">{data.institutions.find((i) => i.id === getStrId(r.institutionId))?.name ?? "—"}</span> },
     { key: "phone", header: "Phone", render: (r) => <span className="text-xs">{r.phone}</span> },
     { key: "email", header: "Email", render: (r) => <span className="text-xs text-muted-foreground">{r.email}</span>, hideOnMobile: true },
   ];
@@ -655,7 +659,10 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
       {/* ── Dialogs ── */}
       <Dialog open={showInstForm} onOpenChange={(o) => { setShowInstForm(o); if (!o) setEditInstitution(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editInstitution ? "Edit" : "Add"} Institution</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{editInstitution ? "Edit" : "Add"} Institution</DialogTitle>
+            <DialogDescription>Fill in the details to {editInstitution ? "update" : "register"} a partner institution.</DialogDescription>
+          </DialogHeader>
           <FormEngine
             fields={institutionFields}
             initial={editInstitution ? { ...editInstitution, assignedTo: userLabelById(editInstitution.assignedTo) } : { pipelineStage: "Identified", type: "School", boardUniversity: "CBSE" }}
@@ -668,35 +675,50 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
 
       <Dialog open={showVisitForm} onOpenChange={setShowVisitForm}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Log Visit</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Log Visit</DialogTitle>
+            <DialogDescription>Record the details of your latest field visit and interaction.</DialogDescription>
+          </DialogHeader>
           <FormEngine fields={visitFields} initial={{ visitDate: todayIso(), status: "Completed", interestLevel: "Warm" }} onSubmit={saveVisit} onCancel={() => setShowVisitForm(false)} />
         </DialogContent>
       </Dialog>
 
       <Dialog open={showTaskForm} onOpenChange={setShowTaskForm}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Create Task</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Create Task</DialogTitle>
+            <DialogDescription>Assign a new action item related to an institution or account.</DialogDescription>
+          </DialogHeader>
           <FormEngine fields={taskFields} initial={{ priority: "Medium", dueDate: todayIso() }} onSubmit={saveTask} onCancel={() => setShowTaskForm(false)} />
         </DialogContent>
       </Dialog>
 
       <Dialog open={showProposalForm} onOpenChange={setShowProposalForm}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>New Proposal</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>New Proposal</DialogTitle>
+            <DialogDescription>Draft and submit a new commercial or academic proposal.</DialogDescription>
+          </DialogHeader>
           <FormEngine fields={proposalFields} initial={{ status: "Draft", sentDate: todayIso(), proposalType: "MoU" }} onSubmit={saveProposal} onCancel={() => setShowProposalForm(false)} />
         </DialogContent>
       </Dialog>
 
       <Dialog open={showEventForm} onOpenChange={setShowEventForm}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Capture Event</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Capture Event</DialogTitle>
+            <DialogDescription>Log details of a workshop, seminar, or offline event.</DialogDescription>
+          </DialogHeader>
           <FormEngine fields={eventFields} initial={{ eventType: "Workshop", eventDate: todayIso() }} onSubmit={saveEvent} onCancel={() => setShowEventForm(false)} />
         </DialogContent>
       </Dialog>
 
       <Dialog open={showExpenseForm} onOpenChange={setShowExpenseForm}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Submit Expense</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Submit Expense</DialogTitle>
+            <DialogDescription>Upload and claim reimbursement for business-related expenses.</DialogDescription>
+          </DialogHeader>
           <FormEngine fields={expenseFields} initial={{ expenseType: "Travel", expenseDate: todayIso() }} onSubmit={saveExpense} onCancel={() => setShowExpenseForm(false)} />
         </DialogContent>
       </Dialog>
@@ -704,7 +726,10 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
       {/* Drill-down dialog for an institution */}
       <Dialog open={!!drillInstitution} onOpenChange={(o) => !o && setDrillInstitution(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{drillInstitution?.name}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{drillInstitution?.name}</DialogTitle>
+            <DialogDescription>Detailed overview of institutional profile, visits, and proposals.</DialogDescription>
+          </DialogHeader>
           {drillInstitution && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
