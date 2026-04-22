@@ -10,7 +10,8 @@ import { useAuth } from "@/lib/auth-context";
 import { 
   downloadCSV, allianceUsers,
   fetchInstitutions, fetchVisits, fetchProposals,
-  createInstitutionApi, updateInstitutionApi, createVisitApi, createProposalApi,
+  createInstitutionApi, updateInstitutionApi, createVisitApi, createProposalApi, updateProposalApi,
+  createTaskApi, updateTaskApi, createEventApi, createExpenseApi,
   fetchContacts, fetchTasks, fetchEvents, fetchExpenses
 } from "@/lib/alliance-data";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -21,7 +22,7 @@ import {
 } from "@/lib/alliance-types";
 import type {
   Institution, AllianceContact, AllianceVisit, AllianceTask, AllianceProposal,
-  AllianceEvent, AllianceExpense, AlliancePipelineStage,
+  AllianceEvent, AllianceExpense, AlliancePipelineStage, TaskStatus,
 } from "@/lib/alliance-types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -238,11 +239,38 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
   });
 
   const proposalMutation = useMutation({
-    mutationFn: createProposalApi,
+    mutationFn: ({ id, data }: { id?: string; data: any }) => id ? updateProposalApi(id, data) : createProposalApi(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['proposals'] });
-      toast.success("Proposal added.");
+      toast.success("Proposal updated.");
       setShowProposalForm(false);
+    }
+  });
+
+  const taskMutation = useMutation({
+    mutationFn: ({ id, data }: { id?: string; data: any }) => id ? updateTaskApi(id, data) : createTaskApi(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      toast.success(showTaskForm ? "Task created." : "Task updated.");
+      setShowTaskForm(false);
+    }
+  });
+
+  const eventMutation = useMutation({
+    mutationFn: createEventApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      toast.success("Event captured.");
+      setShowEventForm(false);
+    }
+  });
+
+  const expenseMutation = useMutation({
+    mutationFn: createExpenseApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      toast.success("Expense submitted.");
+      setShowExpenseForm(false);
     }
   });
 
@@ -276,17 +304,55 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
     const inst = data.institutions.find((i) => i.name === vals.institution);
     if (!inst) { toast.error("Select an institution."); return; }
     proposalMutation.mutate({
-      ...vals,
-      institutionId: inst.id,
-    } as any);
+      data: {
+        ...vals,
+        institutionId: inst.id,
+      }
+    });
+  };
+
+  const approveProposal = (id: string) => {
+    proposalMutation.mutate({ id, data: { status: "Approved" } });
   };
 
   // Keep legacy handlers as dummies or simple logic for non-migrated parts
-  const saveTask = (vals: Record<string, unknown>) => { toast.info("Task management migration pending backend update."); setShowTaskForm(false); };
-  const toggleTaskStatus = (task: AllianceTask) => {};
-  const approveProposal = (id: string) => { toast.info("Proposal approval flow migration pending."); };
-  const saveEvent = (vals: Record<string, unknown>) => { toast.info("Event tracking migration pending."); setShowEventForm(false); };
-  const saveExpense = (vals: Record<string, unknown>) => { toast.info("Expense tracking migration pending."); setShowExpenseForm(false); };
+  const saveTask = (vals: Record<string, unknown>) => {
+    const inst = data.institutions.find((i) => i.name === vals.institution);
+    if (!inst) { toast.error("Select an institution."); return; }
+    taskMutation.mutate({
+      data: {
+        ...vals,
+        institutionId: inst.id,
+        assignedTo: userIdByLabel(String(vals.assignedTo)) || currentUser?.id
+      }
+    });
+  };
+
+  const toggleTaskStatus = (task: AllianceTask) => {
+    const next: Record<string, TaskStatus> = { "Pending": "In Progress", "In Progress": "Done", "Done": "Pending", "Overdue": "In Progress" };
+    taskMutation.mutate({ id: task.id, data: { status: next[task.status] || "Pending" } });
+  };
+
+  const saveEvent = (vals: Record<string, unknown>) => {
+    const inst = data.institutions.find((i) => i.name === vals.institution);
+    if (!inst) { toast.error("Select an institution."); return; }
+    eventMutation.mutate({
+      ...vals,
+      institutionId: inst.id,
+      attendees: Number(vals.attendees) || 0,
+      leadsGenerated: Number(vals.leadsGenerated) || 0,
+    } as any);
+  };
+
+  const saveExpense = (vals: Record<string, unknown>) => {
+    const inst = data.institutions.find((i) => i.name === vals.institution);
+    if (!inst) { toast.error("Select an institution."); return; }
+    expenseMutation.mutate({
+      ...vals,
+      institutionId: inst.id,
+      amount: Number(vals.amount) || 0,
+    } as any);
+  };
 
   // ── Column defs ──
   const institutionColumns: ColumnDef<Institution>[] = [

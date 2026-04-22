@@ -2,7 +2,10 @@ import express from 'express';
 import { 
   getInstitutions, createInstitution, updateInstitution, deleteInstitution,
   getVisits, createVisit, updateVisit,
-  getProposals, createProposal, updateProposal
+  getProposals, createProposal, updateProposal,
+  getTasks, createTask, updateTask,
+  getEvents, createEvent,
+  getExpenses, createExpense, updateExpense
 } from '../controllers/allianceController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -33,5 +36,23 @@ router.route('/proposals')
 
 router.route('/proposals/:id')
   .put(updateProposal);
+
+router.route('/tasks')
+  .get(getTasks)
+  .post(createTask);
+
+router.route('/tasks/:id')
+  .put(updateTask);
+
+router.route('/events')
+  .get(getEvents)
+  .post(createEvent);
+
+router.route('/expenses')
+  .get(getExpenses)
+  .post(createExpense);
+
+router.route('/expenses/:id')
+  .put(updateExpense);
 
 export default router;

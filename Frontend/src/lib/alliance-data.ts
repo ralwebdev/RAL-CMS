@@ -46,9 +46,18 @@ export const fetchProposals = async (): Promise<AllianceProposal[]> => {
 
 // Dummy fetchers for tabs not yet fully backend-ready (maintaining UI)
 export const fetchContacts = async (): Promise<AllianceContact[]> => [];
-export const fetchTasks = async (): Promise<AllianceTask[]> => [];
-export const fetchEvents = async (): Promise<AllianceEvent[]> => [];
-export const fetchExpenses = async (): Promise<AllianceExpense[]> => [];
+export const fetchTasks = async (): Promise<AllianceTask[]> => {
+  const { data } = await axios.get(`${API_URL}/api/alliances/tasks`, getHeaders());
+  return data;
+};
+export const fetchEvents = async (): Promise<AllianceEvent[]> => {
+  const { data } = await axios.get(`${API_URL}/api/alliances/events`, getHeaders());
+  return data;
+};
+export const fetchExpenses = async (): Promise<AllianceExpense[]> => {
+  const { data } = await axios.get(`${API_URL}/api/alliances/expenses`, getHeaders());
+  return data;
+};
 
 /* ───────── MUTATIONS ───────── */
 
@@ -69,6 +78,31 @@ export const createVisitApi = async (input: Partial<AllianceVisit>): Promise<All
 
 export const createProposalApi = async (input: Partial<AllianceProposal>): Promise<AllianceProposal> => {
   const { data } = await axios.post(`${API_URL}/api/alliances/proposals`, input, getHeaders());
+  return data;
+};
+
+export const updateProposalApi = async (id: string, input: Partial<AllianceProposal>): Promise<AllianceProposal> => {
+  const { data } = await axios.put(`${API_URL}/api/alliances/proposals/${id}`, input, getHeaders());
+  return data;
+};
+
+export const createTaskApi = async (input: Partial<AllianceTask>): Promise<AllianceTask> => {
+  const { data } = await axios.post(`${API_URL}/api/alliances/tasks`, input, getHeaders());
+  return data;
+};
+
+export const updateTaskApi = async (id: string, input: Partial<AllianceTask>): Promise<AllianceTask> => {
+  const { data } = await axios.put(`${API_URL}/api/alliances/tasks/${id}`, input, getHeaders());
+  return data;
+};
+
+export const createEventApi = async (input: Partial<AllianceEvent>): Promise<AllianceEvent> => {
+  const { data } = await axios.post(`${API_URL}/api/alliances/events`, input, getHeaders());
+  return data;
+};
+
+export const createExpenseApi = async (input: Partial<AllianceExpense>): Promise<AllianceExpense> => {
+  const { data } = await axios.post(`${API_URL}/api/alliances/expenses`, input, getHeaders());
   return data;
 };
 

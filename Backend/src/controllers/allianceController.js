@@ -4,6 +4,7 @@ import AllianceVisit from '../models/AllianceVisit.js';
 import AllianceTask from '../models/AllianceTask.js';
 import AllianceProposal from '../models/AllianceProposal.js';
 import AllianceEvent from '../models/AllianceEvent.js';
+import AllianceExpense from '../models/AllianceExpense.js';
 
 // @desc    Get all alliance institutions (Scoped by RBAC)
 // @route   GET /api/alliances/institutions
@@ -197,6 +198,148 @@ export const updateProposal = async (req, res) => {
       res.json(updatedProposal);
     } else {
       res.status(404).json({ message: 'Proposal not found' });
+    }
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Get tasks
+// @route   GET /api/alliances/tasks
+// @access  Private
+export const getTasks = async (req, res) => {
+  try {
+    let query = {};
+    if (req.user.role === 'alliance_executive') {
+      query.assignedTo = req.user._id;
+    }
+    const tasks = await AllianceTask.find(query)
+      .populate('institutionId', 'name')
+      .populate('assignedTo', 'name')
+      .sort({ dueDate: 1 });
+    res.json(tasks);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Create a task
+// @route   POST /api/alliances/tasks
+// @access  Private
+export const createTask = async (req, res) => {
+  try {
+    const task = new AllianceTask({
+      ...req.body,
+      assignedTo: req.body.assignedTo || req.user._id
+    });
+    const createdTask = await task.save();
+    res.status(201).json(createdTask);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Update a task
+// @route   PUT /api/alliances/tasks/:id
+// @access  Private
+export const updateTask = async (req, res) => {
+  try {
+    const task = await AllianceTask.findById(req.params.id);
+    if (task) {
+      if (req.user.role === 'alliance_executive' && task.assignedTo.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ message: 'Not authorized to update this task' });
+      }
+      Object.assign(task, req.body);
+      const updatedTask = await task.save();
+      res.json(updatedTask);
+    } else {
+      res.status(404).json({ message: 'Task not found' });
+    }
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Get events
+// @route   GET /api/alliances/events
+// @access  Private
+export const getEvents = async (req, res) => {
+  try {
+    let query = {};
+    if (req.user.role === 'alliance_executive') {
+      const myInstitutions = await AllianceInstitution.find({ assignedExecutiveId: req.user._id }).select('_id');
+      const instIds = myInstitutions.map(i => i._id);
+      query.institutionId = { $in: instIds };
+    }
+    const events = await AllianceEvent.find(query)
+      .populate('institutionId', 'name')
+      .sort({ eventDate: -1 });
+    res.json(events);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Create an event
+// @route   POST /api/alliances/events
+// @access  Private
+export const createEvent = async (req, res) => {
+  try {
+    const event = new AllianceEvent(req.body);
+    const createdEvent = await event.save();
+    res.status(201).json(createdEvent);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Get expenses
+// @route   GET /api/alliances/expenses
+// @access  Private
+export const getExpenses = async (req, res) => {
+  try {
+    let query = {};
+    if (req.user.role === 'alliance_executive') {
+      query.executiveId = req.user._id;
+    }
+    const expenses = await AllianceExpense.find(query)
+      .populate('institutionId', 'name')
+      .populate('executiveId', 'name')
+      .sort({ expenseDate: -1 });
+    res.json(expenses);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Create an expense
+// @route   POST /api/alliances/expenses
+// @access  Private
+export const createExpense = async (req, res) => {
+  try {
+    const expense = new AllianceExpense({
+      ...req.body,
+      executiveId: req.user._id
+    });
+    const createdExpense = await expense.save();
+    res.status(201).json(createdExpense);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Update an expense status
+// @route   PUT /api/alliances/expenses/:id
+// @access  Private
+export const updateExpense = async (req, res) => {
+  try {
+    const expense = await AllianceExpense.findById(req.params.id);
+    if (expense) {
+      Object.assign(expense, req.body);
+      const updatedExpense = await expense.save();
+      res.json(updatedExpense);
+    } else {
+      res.status(404).json({ message: 'Expense not found' });
     }
   } catch (error) {
     res.status(400).json({ message: error.message });

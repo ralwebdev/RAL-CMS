@@ -13,7 +13,6 @@ import { useAuth } from "@/lib/auth-context";
 import {
   KpiCard, NudgeBanner, useAllianceData, useStreak, ProgressRing, todayIso, daysBetween,
 } from "./AllianceShell";
-import { allianceStore } from "@/lib/alliance-data";
 import { ActivityTimeline } from "./AllianceUI";
 import { PendingApprovalsWidget } from "./ApprovalCenter";
 import type { ActivityItem } from "./AllianceUI";
@@ -24,14 +23,6 @@ export function AllianceExecutiveDashboard() {
   const { institutions, visits, tasks, proposals, events, expenses, contacts, isLoading } = useAllianceData({ scope: "executive", executiveId });
   const data = { institutions, visits, tasks, proposals, events, expenses, contacts };
   const { streak, bump } = useStreak(executiveId);
-
-  if (isLoading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-      </div>
-    );
-  }
 
   const today = todayIso();
   const todaysVisits = data.visits.filter((v) => v.visitDate === today);
@@ -88,8 +79,15 @@ export function AllianceExecutiveDashboard() {
 
   const handleQuickAction = () => {
     bump();
-    setVersion((v) => v + 1);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

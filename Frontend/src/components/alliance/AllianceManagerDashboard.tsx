@@ -29,14 +29,6 @@ export function AllianceManagerDashboard() {
   const { institutions, visits, tasks, proposals, events, expenses, contacts, isLoading } = useAllianceData({ scope: "manager", filters });
   const data = { institutions, visits, tasks, proposals, events, expenses, contacts };
 
-  if (isLoading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-      </div>
-    );
-  }
-
   // Previous-period comparison (for trend %)
   const prevFilters = useMemo<AllianceFilters>(() => {
     if (filters.preset === "month") return { ...filters, preset: "month" };
@@ -143,6 +135,14 @@ export function AllianceManagerDashboard() {
     name: e.label,
     count: data.visits.filter((v) => v.executiveId === e.id && v.status === "Completed").length,
   })), [data.visits]);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
