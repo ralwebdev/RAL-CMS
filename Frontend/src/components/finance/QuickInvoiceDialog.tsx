@@ -5,7 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
-import { createInvoice } from "@/lib/finance-store";
+import { createInvoiceApi } from "@/lib/finance-store";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { computeBreakup, detectIntraState, validateGstInput, type GstInputMode } from "@/lib/gst-calc";
 import { GstAmountInput } from "./GstAmountInput";
 import { fmtINR } from "./FinanceKpi";
@@ -37,26 +38,52 @@ export function QuickInvoiceDialog({ open, onClose }: Props) {
     if (!intraOverridden) setIntra(detectIntraState(gstin));
   }, [gstin, intraOverridden]);
 
+  const queryClient = useQueryClient();
+  const createMutation = useMutation({
+    mutationFn: createInvoiceApi,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      toast({ 
+        title: `${data.invoiceNo} issued`, 
+        description: `${fmtINR(data.total)} • Status: ${data.status}` 
+      });
+      onClose();
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Failed to create invoice", 
+        description: error.response?.data?.message || error.message, 
+        variant: "destructive" 
+      });
+    }
+  });
+
   const submit = () => {
     if (!recipient.trim()) { toast({ title: "Recipient name required.", variant: "destructive" }); return; }
     const v = validateGstInput(amount, rate);
     if (!v.ok) { toast({ title: v.error || "Invalid amount", variant: "destructive" }); return; }
     const b = computeBreakup(amount, rate, mode, intra);
-    const inv = createInvoice({
+    
+    createMutation.mutate({
       customerId: "c_" + Math.random().toString(36).slice(2, 6),
-      customerName: recipient.trim(), customerType: "Student",
+      customerName: recipient.trim(), 
+      customerType: "Student",
       revenueStream: "Student Admissions",
       programName: program || "Quick Invoice",
       issueDate: new Date().toISOString(),
       dueDate: new Date(Date.now() + 15 * 86400000).toISOString(),
-      subtotal: b.taxable, discount: 0,
-      gstType: rate === 0 ? "Exempt" : "Taxable", gstRate: rate,
-      gstin, notes: `Generated via Quick Invoice (${mode === "gross_inclusive" ? "Gross" : "Net"} mode)`,
-    } as any, currentUser?.id || "u0");
-    // Patch CGST/SGST/IGST split per chosen place-of-supply
-    inv.cgst = b.cgst; inv.sgst = b.sgst; inv.igst = b.igst;
-    toast({ title: `${inv.invoiceNo} issued`, description: `${fmtINR(inv.total)} • Taxable ${fmtINR(b.taxable)} + GST ${fmtINR(b.gstAmount)}` });
-    onClose();
+      subtotal: b.taxable, 
+      discount: 0,
+      gstType: rate === 0 ? "Exempt" : "Taxable", 
+      gstRate: rate,
+      cgst: b.cgst, 
+      sgst: b.sgst, 
+      igst: b.igst,
+      totalAmount: b.taxable + b.gstAmount,
+      gstin, 
+      notes: `Generated via Quick Invoice (${mode === "gross_inclusive" ? "Gross" : "Net"} mode)`,
+      createdBy: currentUser?.id || "u0"
+    });
   };
 
   return (
@@ -78,7 +105,13 @@ export function QuickInvoiceDialog({ open, onClose }: Props) {
             onAmountChange={setAmount} onRateChange={setRate} onModeChange={setMode}
             onIntraStateChange={(v, manual) => { setIntra(v); if (manual) setIntraOverridden(true); }}
           />
-          <Button className="w-full" onClick={submit}>Generate Invoice</Button>
+          <Button 
+            className="w-full" 
+            onClick={submit} 
+            disabled={createMutation.isPending}
+          >
+            {createMutation.isPending ? "Generating..." : "Generate Invoice"}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

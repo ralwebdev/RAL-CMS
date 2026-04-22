@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
-import { createInvoice } from "@/lib/finance-store";
+import { createInvoiceApi } from "@/lib/finance-store";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { computeBreakup, validateGstInput, GST_SLABS, type GstInputMode } from "@/lib/gst-calc";
 import { fmtINR } from "./FinanceKpi";
 import { Layers, Plus, Trash2 } from "lucide-react";
@@ -45,27 +46,58 @@ export function BulkInvoiceDialog({ open, onClose }: Props) {
     { taxable: 0, gst: 0, gross: 0 },
   );
 
+  const queryClient = useQueryClient();
+  const bulkCreateMutation = useMutation({
+    mutationFn: async (invoices: any[]) => {
+      const promises = invoices.map(inv => createInvoiceApi(inv));
+      return Promise.all(promises);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      toast({ 
+        title: `${data.length} invoices generated`, 
+        description: `Total ${fmtINR(totals.gross)} successfully recorded.` 
+      });
+      onClose();
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Bulk generation failed", 
+        description: error.response?.data?.message || error.message, 
+        variant: "destructive" 
+      });
+    }
+  });
+
   const submit = () => {
     const v = validateGstInput(valid[0]?.amount || 0, rate);
     if (!valid.length) { toast({ title: "Add at least one valid row.", variant: "destructive" }); return; }
     if (!v.ok) { toast({ title: v.error || "Invalid GST configuration.", variant: "destructive" }); return; }
-    valid.forEach(r => {
+    
+    const invoices = valid.map(r => {
       const b = computeBreakup(r.amount, rate, mode, intra);
-      const inv = createInvoice({
+      return {
         customerId: "c_" + Math.random().toString(36).slice(2, 6),
-        customerName: r.recipient.trim(), customerType: "Student",
+        customerName: r.recipient.trim(), 
+        customerType: "Student",
         revenueStream: "Student Admissions",
         programName: r.program || "Bulk Invoice",
         issueDate: new Date().toISOString(),
         dueDate: new Date(Date.now() + 15 * 86400000).toISOString(),
-        subtotal: b.taxable, discount: 0,
-        gstType: rate === 0 ? "Exempt" : "Taxable", gstRate: rate,
+        subtotal: b.taxable, 
+        discount: 0,
+        gstType: rate === 0 ? "Exempt" : "Taxable", 
+        gstRate: rate,
+        cgst: b.cgst, 
+        sgst: b.sgst, 
+        igst: b.igst,
+        totalAmount: b.taxable + b.gstAmount,
         notes: "Generated via Bulk Invoice Generator",
-      } as any, currentUser?.id || "u0");
-      inv.cgst = b.cgst; inv.sgst = b.sgst; inv.igst = b.igst;
+        createdBy: currentUser?.id || "u0"
+      };
     });
-    toast({ title: `${valid.length} invoices generated`, description: `Total ${fmtINR(totals.gross)} (GST ${fmtINR(totals.gst)})` });
-    onClose();
+    
+    bulkCreateMutation.mutate(invoices);
   };
 
   return (
@@ -140,7 +172,16 @@ export function BulkInvoiceDialog({ open, onClose }: Props) {
             <div><div className="text-muted-foreground">Grand Total</div><div className="font-semibold text-sm tabular-nums text-primary">{fmtINR(totals.gross)}</div></div>
           </Card>
 
-          <Button className="w-full" onClick={submit} disabled={!valid.length}>Generate {valid.length || ""} Invoice{valid.length === 1 ? "" : "s"}</Button>
+          <Button 
+            className="w-full" 
+            onClick={submit} 
+            disabled={!valid.length || bulkCreateMutation.isPending}
+          >
+            {bulkCreateMutation.isPending 
+              ? `Generating ${valid.length} Invoices...` 
+              : `Generate ${valid.length || ""} Invoice${valid.length === 1 ? "" : "s"}`
+            }
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

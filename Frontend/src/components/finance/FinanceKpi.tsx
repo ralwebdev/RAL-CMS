@@ -50,12 +50,14 @@ export function FinanceKpi({ label, value, hint, trend, tone = "default", icon, 
   );
 }
 
-export const fmtINR = (n: number) =>
-  "₹" + (n >= 10000000
+export const fmtINR = (n?: number) => {
+  if (n === undefined || n === null || isNaN(n)) return "₹0";
+  return "₹" + (n >= 10000000
     ? (n / 10000000).toFixed(2) + " Cr"
     : n >= 100000
       ? (n / 100000).toFixed(2) + " L"
       : n.toLocaleString("en-IN"));
+};
 
 export const fmtDate = (iso?: string) =>
   iso ? new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—";
@@ -75,7 +77,8 @@ export function StatusPill({ status, tone }: { status: string; tone?: "success" 
   );
 }
 
-export function statusTone(status: string): "success" | "warning" | "destructive" | "muted" | "primary" {
+export function statusTone(status?: string): "success" | "warning" | "destructive" | "muted" | "primary" {
+  if (!status) return "muted";
   const s = status.toLowerCase();
   if (["paid", "approved", "received"].includes(s)) return "success";
   if (["pending", "partial", "draft", "sent", "due", "upcoming", "hold"].includes(s)) return "warning";

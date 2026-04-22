@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
-  getFinance, subscribeFinance, recomputeOverdue,
-  createInvoice, recordPayment, createExpense, setExpenseStatus,
-  createVendor, createVendorBill, payVendorBill, createBudget, payEmi, autoSeedEmisForPartial,
+  getMockFinanceData, fetchInvoices, fetchExpenses, fetchPayments, fetchVendors,
+  recomputeOverdue, autoSeedEmisForPartial,
+  createInvoiceApi, createPaymentApi, updateExpenseApi, createExpenseApi, createVendorApi,
+  createVendorBill, payVendorBill, createBudget, payEmi,
 } from "@/lib/finance-store";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Invoice, Payment, Expense, Vendor, VendorBill, Budget, EmiSchedule,
   RevenueStream, ExpenseCategory, GstType, PaymentMode, ExpenseStatus,
@@ -52,11 +54,23 @@ import { computeEmiMetrics, computeStudentRisk } from "@/lib/revenue-projection"
 const CHART_COLORS = ["hsl(var(--primary))", "#1A1A1A", "#10b981", "#f59e0b", "#6366f1", "#ec4899", "#0ea5e9"];
 
 function useFinance() {
-  return useSyncExternalStore(
-    (l) => subscribeFinance(l),
-    () => getFinance(),
-    () => getFinance(),
-  );
+  const invoicesQuery = useQuery({ queryKey: ['invoices'], queryFn: fetchInvoices });
+  const expensesQuery = useQuery({ queryKey: ['expenses'], queryFn: fetchExpenses });
+  const paymentsQuery = useQuery({ queryKey: ['payments'], queryFn: fetchPayments });
+  const vendorsQuery = useQuery({ queryKey: ['vendors'], queryFn: fetchVendors });
+
+  const mockData = useMemo(() => getMockFinanceData(), []);
+
+  const isLoading = invoicesQuery.isLoading || expensesQuery.isLoading || paymentsQuery.isLoading || vendorsQuery.isLoading;
+
+  return {
+    invoices: invoicesQuery.data || [],
+    expenses: expensesQuery.data || [],
+    payments: paymentsQuery.data || [],
+    vendors: vendorsQuery.data || [],
+    ...mockData,
+    isLoading
+  };
 }
 
 function useDispatchList() {
@@ -99,6 +113,14 @@ export function AccountsModule() {
   const [tab, setTab] = useState(tabs[0].id);
 
   useEffect(() => { recomputeOverdue(); autoSeedEmisForPartial(); }, []);
+
+  if (fin.isLoading) {
+    return (
+      <div className="flex h-[400px] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -152,16 +174,20 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
   const emiMetrics = computeEmiMetrics(fin.emiSchedules);
   const riskRows = computeStudentRisk(fin.invoices, fin.emiSchedules);
   const riskAtStake = riskRows.filter(r => r.riskLevel !== "low").reduce((s, r) => s + r.balanceDue, 0);
-  const totalBilled = fin.invoices.reduce((s, i) => s + i.total, 0);
-  const totalCollected = fin.payments.reduce((s, p) => s + p.amount, 0);
-  const outstanding = fin.invoices.reduce((s, i) => s + (i.total - i.amountPaid), 0);
-  const totalExpenses = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.total, 0);
+  const totalBilled = fin.invoices.reduce((s, i) => s + (i.total ?? (i as any).totalAmount ?? 0), 0);
+  const totalCollected = fin.payments.reduce((s, p) => s + (p.amount ?? 0), 0);
+  const outstanding = fin.invoices.reduce((s, i) => {
+    const it = i.total ?? (i as any).totalAmount ?? 0;
+    const ip = i.amountPaid ?? 0;
+    return s + (it - ip);
+  }, 0);
+  const totalExpenses = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + (e.total ?? 0), 0);
   const netProfit = totalCollected - totalExpenses;
   const gstOutput = fin.invoices.reduce((s, i) => s + i.cgst + i.sgst + i.igst, 0);
   const gstInput = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.gst, 0);
   const gstLiability = Math.max(0, gstOutput - gstInput);
 
-  const vendorPayables = fin.vendorBills.filter(b => b.status !== "Paid").reduce((s, b) => s + (b.total - b.paid), 0);
+  const vendorPayables = fin.vendorBills.filter(b => b.status !== "Paid").reduce((s, b) => s + ((b.total ?? 0) - (b.paid ?? 0)), 0);
   const emiOverdue = fin.emiSchedules.filter(e => e.status === "Overdue").length;
   const collectionEff = totalBilled > 0 ? (totalCollected / totalBilled * 100) : 0;
   const dailyBurn = totalExpenses / 30 || 1;
@@ -176,16 +202,18 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
   const trend = useMemo(() => {
     const months: Record<string, { name: string; revenue: number; expense: number }> = {};
     fin.payments.forEach(p => {
+      if (!p.paidOn) return;
       const d = new Date(p.paidOn);
       const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       months[k] = months[k] || { name: k, revenue: 0, expense: 0 };
-      months[k].revenue += p.amount;
+      months[k].revenue += (p.amount ?? 0);
     });
     fin.expenses.filter(e => e.status === "Approved").forEach(e => {
+      if (!e.spendDate) return;
       const d = new Date(e.spendDate);
       const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       months[k] = months[k] || { name: k, revenue: 0, expense: 0 };
-      months[k].expense += e.total;
+      months[k].expense += (e.total ?? 0);
     });
     return Object.values(months).sort((a, b) => a.name.localeCompare(b.name));
   }, [fin]);
@@ -194,8 +222,10 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
     const buckets = { "0-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
     const now = Date.now();
     fin.invoices.forEach(i => {
-      const due = i.total - i.amountPaid;
-      if (due <= 0) return;
+      const it = i.total ?? (i as any).totalAmount ?? 0;
+      const ip = i.amountPaid ?? 0;
+      const due = it - ip;
+      if (due <= 0 || !i.dueDate) return;
       const days = Math.floor((now - new Date(i.dueDate).getTime()) / 86400000);
       if (days < 30) buckets["0-30"] += due;
       else if (days < 60) buckets["31-60"] += due;
@@ -500,11 +530,25 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const effectiveRate = f.gstType === "Exempt" ? 0 : f.gstRate;
   const breakup = computeBreakup(Math.max(0, f.amount - f.discount), effectiveRate, f.mode, f.intra);
 
+  const queryClient = useQueryClient();
+  const createMutation = useMutation({
+    mutationFn: createInvoiceApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      toast({ title: "Invoice issued successfully" });
+      onClose();
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to issue invoice", description: error.response?.data?.message || error.message, variant: "destructive" });
+    }
+  });
+
   const submit = () => {
     if (!f.customerName.trim()) { toast({ title: "Student record not found.", description: "Party (student / institution) name is required.", variant: "destructive" }); return; }
     const v = validateGstInput(f.amount, effectiveRate);
     if (!v.ok) { toast({ title: v.error || "Invalid amount", variant: "destructive" }); return; }
-    const inv = createInvoice({
+    
+    createMutation.mutate({
       customerId: "c_" + Math.random().toString(36).slice(2, 6),
       customerName: f.customerName.trim(), customerType: f.customerType,
       revenueStream: f.revenueStream, programName: f.programName,
@@ -512,10 +556,10 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
       dueDate: new Date(f.dueDate).toISOString(),
       subtotal: breakup.taxable, discount: 0,
       gstType: f.gstType, gstRate: effectiveRate, gstin: f.gstin, notes: f.notes,
-    } as any, currentUser?.id || "u0");
-    inv.cgst = breakup.cgst; inv.sgst = breakup.sgst; inv.igst = breakup.igst;
-    toast({ title: "Invoice issued", description: `${inv.invoiceNo} · ${fmtINR(inv.total)} — Taxable ${fmtINR(breakup.taxable)} + GST ${fmtINR(breakup.gstAmount)}` });
-    onClose();
+      cgst: breakup.cgst, sgst: breakup.sgst, igst: breakup.igst,
+      totalAmount: breakup.taxable + breakup.gstAmount,
+      createdBy: currentUser?.id || "u0",
+    });
   };
 
   return (
@@ -582,18 +626,32 @@ function InvoiceViewDrawer({ invoice, onClose }: { invoice: Invoice | null; onCl
   const [amount, setAmount] = useState(0);
   const [mode, setMode] = useState<PaymentMode>("UPI");
 
+  const queryClient = useQueryClient();
+  const collectMutation = useMutation({
+    mutationFn: createPaymentApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      toast({ title: "Payment recorded successfully" });
+      onClose();
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to record payment", description: error.response?.data?.message || error.message, variant: "destructive" });
+    }
+  });
+
   if (!invoice) return null;
-  const due = invoice.total - invoice.amountPaid;
+  const invTotal = invoice.total ?? (invoice as any).totalAmount ?? 0;
+  const invPaid = invoice.amountPaid ?? 0;
+  const due = invTotal - invPaid;
 
   const collect = () => {
     if (amount <= 0 || amount > due) { toast({ title: `Enter amount up to ${fmtINR(due)}`, variant: "destructive" }); return; }
-    recordPayment({
+    collectMutation.mutate({
       invoiceId: invoice.id, customerId: invoice.customerId, customerName: invoice.customerName,
       amount, mode, paidOn: new Date().toISOString(), reference: `MANUAL-${Date.now()}`,
       recordedBy: currentUser?.id || "u0",
-    } as any, currentUser?.id || "u0");
-    toast({ title: "Payment recorded" });
-    onClose();
+    });
   };
 
   return (
@@ -607,9 +665,9 @@ function InvoiceViewDrawer({ invoice, onClose }: { invoice: Invoice | null; onCl
           <Row k="Due" v={fmtDate(invoice.dueDate)} />
           <Row k="Subtotal" v={fmtINR(invoice.subtotal)} />
           <Row k="Discount" v={fmtINR(invoice.discount)} />
-          <Row k="CGST + SGST" v={fmtINR(invoice.cgst + invoice.sgst)} />
-          <Row k="Total" v={<b>{fmtINR(invoice.total)}</b>} />
-          <Row k="Paid" v={fmtINR(invoice.amountPaid)} />
+          <Row k="CGST + SGST" v={fmtINR((invoice.cgst || 0) + (invoice.sgst || 0))} />
+          <Row k="Total" v={<b>{fmtINR(invTotal)}</b>} />
+          <Row k="Paid" v={fmtINR(invPaid)} />
           <Row k="Due" v={<span className="text-destructive font-semibold">{fmtINR(due)}</span>} />
         </Card>
         {due > 0 && (
@@ -703,6 +761,18 @@ function ExpensesTab({ role }: { role: RoleScope }) {
 
   const canApprove = role === "owner" || role === "manager";
 
+  const queryClient = useQueryClient();
+  const updateStatusMutation = useMutation({
+    mutationFn: updateExpenseApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      toast({ title: "Expense status updated" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to update status", description: error.response?.data?.message || error.message, variant: "destructive" });
+    }
+  });
+
   const actOnApproval = (exp: Expense, action: "Approve" | "Reject") => {
     const req = approvalForExpense(exp.id);
     const actorRole: UserRole = (currentUser?.role as UserRole) || "accounts_manager";
@@ -715,11 +785,11 @@ function ExpensesTab({ role }: { role: RoleScope }) {
       });
       if (!updated) { toast({ title: "Approval level not configured.", variant: "destructive" }); return; }
       syncApprovalToExpense(updated, currentUser?.id || "u0");
+      // Also update the backend expense status
+      updateStatusMutation.mutate({ id: exp.id, status: action === "Approve" ? "Approved" : "Rejected" });
     } else {
-      // fallback (legacy expenses without an approval record)
-      setExpenseStatus(exp.id, action === "Approve" ? "Approved" : "Rejected", currentUser?.id || "u0");
+      updateStatusMutation.mutate({ id: exp.id, status: action === "Approve" ? "Approved" : "Rejected" });
     }
-    toast({ title: action === "Approve" ? "Expense approved" : "Expense rejected" });
   };
 
   const cols: Column<Expense>[] = [
@@ -770,28 +840,40 @@ function ExpenseFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     paymentMode: "Bank" as PaymentMode,
   });
 
+  const queryClient = useQueryClient();
+  const createMutation = useMutation({
+    mutationFn: createExpenseApi,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      try {
+        const role = (currentUser?.role as UserRole) || "accounts_executive";
+        const tier = tierForAmount(data.total);
+        submitExpenseForApproval(data, currentUser?.id || "u0", role);
+        toast({ title: "Expense submitted", description: `Routed to ${tier.tier.replace(/_/g, " ")} (${tier.approverRole.replace(/_/g, " ")}).` });
+      } catch {
+        toast({ title: "Expense created but approval level not configured." });
+      }
+      onClose();
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to submit expense", description: error.response?.data?.message || error.message, variant: "destructive" });
+    }
+  });
+
   const submit = () => {
     if (f.amount <= 0 || !f.description) { toast({ title: "Fill amount + description", variant: "destructive" }); return; }
     const vendor = fin.vendors.find(v => v.id === f.vendorId);
-    const exp = createExpense({
+    createMutation.mutate({
       category: f.category,
       vendorId: vendor?.id, vendorName: vendor?.name,
       amount: f.amount, gst: f.gst,
+      total: f.amount + f.gst,
       spendDate: new Date(f.spendDate).toISOString(),
       description: f.description,
       status: "Pending",
       paymentMode: f.paymentMode,
       submittedBy: currentUser?.id || "u0",
-    } as any, currentUser?.id || "u0");
-    try {
-      const role = (currentUser?.role as UserRole) || "accounts_executive";
-      const tier = tierForAmount(exp.total);
-      submitExpenseForApproval(exp, currentUser?.id || "u0", role);
-      toast({ title: "Expense submitted", description: `Routed to ${tier.tier.replace(/_/g, " ")} (${tier.approverRole.replace(/_/g, " ")}).` });
-    } catch {
-      toast({ title: "Approval level not configured.", variant: "destructive" });
-    }
-    onClose();
+    });
   };
 
   return (
@@ -907,6 +989,25 @@ function VendorFormDrawer({ open, onClose }: { open: boolean; onClose: () => voi
   const { currentUser } = useAuth();
   const { toast } = useToast();
   const [f, setF] = useState({ name: "", category: "", gstin: "", contactName: "", phone: "", email: "", address: "", openingBalance: 0 });
+
+  const queryClient = useQueryClient();
+  const createMutation = useMutation({
+    mutationFn: createVendorApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+      toast({ title: "Vendor added successfully" });
+      onClose();
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to add vendor", description: error.response?.data?.message || error.message, variant: "destructive" });
+    }
+  });
+
+  const submit = () => {
+    if (!f.name) { toast({ title: "Name required", variant: "destructive" }); return; }
+    createMutation.mutate(f);
+  };
+
   return (
     <FinanceDrawer open={open} onOpenChange={(o) => !o && onClose()} title="Add Vendor">
       <div className="space-y-3">
@@ -918,11 +1019,9 @@ function VendorFormDrawer({ open, onClose }: { open: boolean; onClose: () => voi
         </div>
         <div><Label>GSTIN</Label><Input value={f.gstin} onChange={e => setF({ ...f, gstin: e.target.value })} /></div>
         <div><Label>Email</Label><Input value={f.email} onChange={e => setF({ ...f, email: e.target.value })} /></div>
-        <Button className="w-full" onClick={() => {
-          if (!f.name) { toast({ title: "Name required", variant: "destructive" }); return; }
-          createVendor(f as any, currentUser?.id || "u0");
-          toast({ title: "Vendor added" }); onClose();
-        }}>Save Vendor</Button>
+        <Button className="w-full" onClick={submit} disabled={createMutation.isPending}>
+          {createMutation.isPending ? "Saving..." : "Save Vendor"}
+        </Button>
       </div>
     </FinanceDrawer>
   );
