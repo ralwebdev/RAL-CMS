@@ -106,6 +106,11 @@ export const createExpenseApi = async (input: Partial<AllianceExpense>): Promise
   return data;
 };
 
+export const updateExpenseApi = async (id: string, input: Partial<AllianceExpense>): Promise<AllianceExpense> => {
+  const { data } = await axios.put(`${API_URL}/api/alliances/expenses/${id}`, input, getHeaders());
+  return data;
+};
+
 /* ───────── LEGACY STORE (Deprecated) ───────── */
 // Keeping some utilities for compatibility until refactoring is 100% complete
 export const allianceStore = {

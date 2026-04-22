@@ -23,7 +23,7 @@ import {
   approvalStore, approvalsForActor, pendingForRole, avgApprovalHours, hoursSince, canOverride,
   type ApprovalRequest, type ApprovalStatus, type ApprovalAction, type ApprovalRequestType,
 } from "@/lib/approvals";
-import { allianceStore, downloadCSV } from "@/lib/alliance-data";
+import { allianceStore, downloadCSV, allianceUsers, updateExpenseApi } from "@/lib/alliance-data";
 import { toast } from "sonner";
 import { confetti } from "./AllianceShell";
 import { cn } from "@/lib/utils";
@@ -54,7 +54,8 @@ function StatusChip({ value }: { value: ApprovalStatus }) {
 const REQUEST_TYPES: ApprovalRequestType[] = ["Expense Bill", "Task Completion", "Task Extension", "Travel Reimbursement", "Visit Claim", "Custom Request", "Proposal Approval"];
 
 export function ApprovalCenter() {
-  const { currentUser, allUsers } = useAuth();
+  const { currentUser } = useAuth();
+  const users = allianceUsers || [];
   const [version, setVersion] = useState(0);
   const [actionTarget, setActionTarget] = useState<{ req: ApprovalRequest; action: Exclude<ApprovalAction, "Submit"> } | null>(null);
   const [comment, setComment] = useState("");
@@ -70,7 +71,7 @@ export function ApprovalCenter() {
   const isMgr = role === "alliance_manager";
   const isAdmin = role === "admin" || role === "owner";
 
-  const userLabel = (id?: string) => allUsers.find((u) => u.id === id)?.name ?? id ?? "—";
+  const userLabel = (id?: string) => users.find((u) => u.id === id)?.name ?? id ?? "—";
 
   const all = useMemo(() => { void version; return userId ? approvalsForActor(userId, role) : []; }, [userId, role, version]);
   const pending = useMemo(() => { void version; return userId ? pendingForRole(userId, role) : []; }, [userId, role, version]);
@@ -80,12 +81,12 @@ export function ApprovalCenter() {
       if (filterStatus !== "all" && a.status !== filterStatus) return false;
       if (filterType !== "all" && a.requestType !== filterType) return false;
       if (search) {
-        const sender = allUsers.find((u) => u.id === a.submittedBy)?.name ?? "";
+        const sender = users.find((u) => u.id === a.submittedBy)?.name ?? "";
         if (!a.title.toLowerCase().includes(search.toLowerCase()) && !sender.toLowerCase().includes(search.toLowerCase())) return false;
       }
       return true;
     });
-  }, [all, filterStatus, filterType, search, allUsers]);
+  }, [all, filterStatus, filterType, search, users]);
 
   if (!currentUser) return null;
 
@@ -100,14 +101,16 @@ export function ApprovalCenter() {
   // Behavioral nudges
   const urgent = pending.filter((p) => hoursSince(p.createdAt) >= 24).length;
 
-  function syncBack(req: ApprovalRequest, status: ApprovalStatus) {
-    // Mirror Approved/Rejected back to expense source records
+  async function syncBack(req: ApprovalRequest, status: ApprovalStatus) {
+    // Mirror Approved/Rejected back to expense source records in the backend
     if (req.requestType === "Expense Bill" || req.requestType === "Travel Reimbursement" || req.requestType === "Visit Claim") {
-      const exps = allianceStore.getExpenses();
-      const target = exps.find((e) => e.id === req.requestId);
-      if (target) {
-        const next = status === "Approved" ? "Approved" : status === "Rejected" ? "Rejected" : target.status;
-        allianceStore.saveExpenses(exps.map((e) => e.id === req.requestId ? { ...e, status: next as typeof e.status } : e));
+      const next = status === "Approved" ? "Approved" : status === "Rejected" ? "Rejected" : null;
+      if (next) {
+        try {
+          await updateExpenseApi(req.requestId, { status: next as any });
+        } catch (error) {
+          console.error("Failed to sync back expense status:", error);
+        }
       }
     }
   }
