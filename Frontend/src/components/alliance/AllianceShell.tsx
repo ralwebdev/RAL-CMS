@@ -16,7 +16,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { allianceStore } from "@/lib/alliance-data";
+import { useQuery } from "@tanstack/react-query";
+import { 
+  fetchInstitutions, fetchVisits, fetchTasks, fetchProposals, 
+  fetchEvents, fetchExpenses, fetchContacts 
+} from "@/lib/alliance-data";
 import { INSTITUTION_TYPES, PIPELINE_STAGES } from "@/lib/alliance-types";
 import type {
   Institution, AllianceVisit, AllianceTask, AllianceProposal, AllianceEvent, AllianceExpense, AllianceContact,
@@ -71,17 +75,27 @@ export function useAllianceData(opts: {
   executiveId?: string;
   filters?: AllianceFilters;
   version?: number;
-}): ScopedData {
-  const { scope, executiveId, filters, version } = opts;
-  return useMemo(() => {
-    void version;
-    const allInst = allianceStore.getInstitutions();
-    const allVisits = allianceStore.getVisits();
-    const allTasks = allianceStore.getTasks();
-    const allProps = allianceStore.getProposals();
-    const allEvents = allianceStore.getEvents();
-    const allExp = allianceStore.getExpenses();
-    const allContacts = allianceStore.getContacts();
+}): ScopedData & { isLoading: boolean } {
+  const { scope, executiveId, filters } = opts;
+
+  const instQuery = useQuery({ queryKey: ['institutions'], queryFn: fetchInstitutions });
+  const visitsQuery = useQuery({ queryKey: ['visits'], queryFn: fetchVisits });
+  const tasksQuery = useQuery({ queryKey: ['tasks'], queryFn: fetchTasks });
+  const proposalsQuery = useQuery({ queryKey: ['proposals'], queryFn: fetchProposals });
+  const eventsQuery = useQuery({ queryKey: ['events'], queryFn: fetchEvents });
+  const expensesQuery = useQuery({ queryKey: ['expenses'], queryFn: fetchExpenses });
+  const contactsQuery = useQuery({ queryKey: ['contacts'], queryFn: fetchContacts });
+
+  const isLoading = instQuery.isLoading || visitsQuery.isLoading || proposalsQuery.isLoading;
+
+  const data = useMemo(() => {
+    const allInst = instQuery.data || [];
+    const allVisits = visitsQuery.data || [];
+    const allTasks = tasksQuery.data || [];
+    const allProps = proposalsQuery.data || [];
+    const allEvents = eventsQuery.data || [];
+    const allExp = expensesQuery.data || [];
+    const allContacts = contactsQuery.data || [];
 
     let inst = scope === "executive" && executiveId
       ? allInst.filter((i) => i.assignedTo === executiveId)
@@ -115,7 +129,9 @@ export function useAllianceData(opts: {
         : allExp.filter((e) => ids.has(e.institutionId)),
       contacts: allContacts.filter((c) => ids.has(c.institutionId)),
     };
-  }, [scope, executiveId, filters, version]);
+  }, [scope, executiveId, filters, instQuery.data, visitsQuery.data, tasksQuery.data, proposalsQuery.data, eventsQuery.data, expensesQuery.data, contactsQuery.data]);
+
+  return { ...data, isLoading };
 }
 
 /* ───── KpiCard ───── */
@@ -251,10 +267,11 @@ interface FilterBarProps {
   showExecutive?: boolean;
 }
 export function GlobalFilterBar({ filters, onChange, executives, showExecutive = true }: FilterBarProps) {
+  const { institutions } = useAllianceData({ scope: "manager" }); // Manager scope to get all districts
   const districts = useMemo(() => {
-    const set = new Set(allianceStore.getInstitutions().map((i) => i.district).filter(Boolean));
+    const set = new Set(institutions.map((i) => i.district).filter(Boolean));
     return Array.from(set).sort();
-  }, []);
+  }, [institutions]);
   const update = (patch: Partial<AllianceFilters>) => onChange({ ...filters, ...patch });
 
   return (

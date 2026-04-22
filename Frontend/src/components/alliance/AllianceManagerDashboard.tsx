@@ -26,7 +26,16 @@ const userLabel = (id: string) => allianceUsers.find((u) => u.id === id)?.name ?
 export function AllianceManagerDashboard() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState<AllianceFilters>(defaultFilters);
-  const data = useAllianceData({ scope: "manager", filters });
+  const { institutions, visits, tasks, proposals, events, expenses, contacts, isLoading } = useAllianceData({ scope: "manager", filters });
+  const data = { institutions, visits, tasks, proposals, events, expenses, contacts };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   // Previous-period comparison (for trend %)
   const prevFilters = useMemo<AllianceFilters>(() => {

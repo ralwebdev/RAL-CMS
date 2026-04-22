@@ -19,6 +19,8 @@ import {
 import { useMemo, useState, useEffect } from "react";
 import axios from "axios";
 import { MASTER_COURSES } from "@/lib/master-schema";
+import { AllianceExecutiveDashboard } from "@/components/alliance/AllianceExecutiveDashboard";
+import { AllianceManagerDashboard } from "@/components/alliance/AllianceManagerDashboard";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -1489,6 +1491,8 @@ function AdminDashboard() {
    ═══════════════════════════════════════════════════════════════ */
 export default function RoleDashboard() {
   const { currentUser } = useAuth();
+  
+  console.log("Current user role:", currentUser?.role);
 
   if (!currentUser) {
     return (
@@ -1508,6 +1512,8 @@ export default function RoleDashboard() {
     case "telecalling_manager": return <TelecallingManagerDashboard />;
     case "owner": return <OwnerDashboard />;
     case "admin": return <AdminDashboard />;
+    case "alliance_executive": return <AllianceExecutiveDashboard />;
+    case "alliance_manager": return <AllianceManagerDashboard />;
     default: return (
       <div className="flex items-center justify-center h-64">
         <p className="text-sm text-destructive">You do not have permission to access this dashboard.</p>
