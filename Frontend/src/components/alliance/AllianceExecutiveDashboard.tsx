@@ -17,7 +17,10 @@ import { ActivityTimeline } from "./AllianceUI";
 import { PendingApprovalsWidget } from "./ApprovalCenter";
 import type { ActivityItem } from "./AllianceUI";
 
+import { useNavigate } from "react-router-dom";
+
 export function AllianceExecutiveDashboard() {
+  const navigate = useNavigate();
   const { currentUser } = useAuth();
   const executiveId = currentUser?.id;
   const { institutions, visits, tasks, proposals, events, expenses, contacts, isLoading } = useAllianceData({ scope: "executive", executiveId });
@@ -156,7 +159,7 @@ export function AllianceExecutiveDashboard() {
           title="Expense Pending" value={expensesPending} icon={<Receipt className="h-5 w-5" />}
           microcopy="Claims awaiting approval."
         />
-        <PendingApprovalsWidget onOpen={() => { window.location.href = "/alliances?tab=approvals"; }} />
+        <PendingApprovalsWidget onOpen={() => navigate("/alliances?tab=approvals")} />
       </div>
 
       <NudgeBanner items={nudges} />

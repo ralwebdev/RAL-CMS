@@ -5,6 +5,7 @@ import AllianceTask from '../models/AllianceTask.js';
 import AllianceProposal from '../models/AllianceProposal.js';
 import AllianceEvent from '../models/AllianceEvent.js';
 import AllianceExpense from '../models/AllianceExpense.js';
+import { AllianceApproval, AllianceApprovalLog } from '../models/AllianceApproval.js';
 
 // @desc    Get all alliance institutions (Scoped by RBAC)
 // @route   GET /api/alliances/institutions
@@ -343,5 +344,135 @@ export const updateExpense = async (req, res) => {
     }
   } catch (error) {
     res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Get approvals
+// @route   GET /api/alliances/approvals
+// @access  Private
+export const getApprovals = async (req, res) => {
+  try {
+    const { role, _id } = req.user;
+    let query = {};
+
+    if (role === 'alliance_manager') {
+      // Manager sees pending items routed to them + their own submissions
+      query = {
+        $or: [
+          { currentApproverRole: 'alliance_manager' },
+          { submittedBy: _id }
+        ]
+      };
+    } else if (role === 'alliance_executive') {
+      // Executives only see what they submitted
+      query = { submittedBy: _id };
+    }
+    // Admin/Owner see all
+
+    const approvals = await AllianceApproval.find(query)
+      .populate('submittedBy', 'name')
+      .populate('currentApproverId', 'name')
+      .sort({ createdAt: -1 });
+    res.json(approvals);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Submit an approval request
+// @route   POST /api/alliances/approvals
+// @access  Private
+export const submitApproval = async (req, res) => {
+  try {
+    const { requestId, requestType, title, amount, priority, notes, meta } = req.body;
+    const { role, _id } = req.user;
+
+    // Resolve next approver role
+    let currentApproverRole = 'admin';
+    if (role === 'alliance_executive') currentApproverRole = 'alliance_manager';
+
+    const approval = new AllianceApproval({
+      requestId, requestType, title, amount, priority, notes, meta,
+      submittedBy: _id,
+      submittedRole: role,
+      currentApproverRole,
+      status: 'Pending'
+    });
+
+    const createdApproval = await approval.save();
+
+    // Log the submission
+    const log = new AllianceApprovalLog({
+      approvalId: createdApproval._id,
+      action: 'Submit',
+      fromStatus: 'Pending',
+      toStatus: 'Pending',
+      actedBy: _id,
+      actedRole: role
+    });
+    await log.save();
+
+    res.status(201).json(createdApproval);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Act on an approval request
+// @route   PUT /api/alliances/approvals/:id
+// @access  Private
+export const actOnApproval = async (req, res) => {
+  try {
+    const { action, comment, nextReviewDate } = req.body;
+    const { role, _id } = req.user;
+
+    const approval = await AllianceApproval.findById(req.params.id);
+    if (!approval) return res.status(404).json({ message: 'Approval not found' });
+
+    const fromStatus = approval.status;
+    let toStatus = fromStatus;
+
+    if (action === 'Approve') toStatus = 'Approved';
+    else if (action === 'Reject') toStatus = 'Rejected';
+    else if (action === 'Hold') toStatus = 'Hold';
+    else if (action === 'Override') toStatus = 'Overridden';
+    else if (action === 'Resubmit') toStatus = 'Resubmitted';
+
+    approval.status = toStatus;
+    if (nextReviewDate) approval.nextReviewDate = nextReviewDate;
+    
+    const updatedApproval = await approval.save();
+
+    // Log the action
+    const log = new AllianceApprovalLog({
+      approvalId: updatedApproval._id,
+      action,
+      fromStatus,
+      toStatus,
+      actedBy: _id,
+      actedRole: role,
+      comment
+    });
+    await log.save();
+
+    res.json(updatedApproval);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Get approval logs
+// @route   GET /api/alliances/approvals/logs
+// @access  Private
+export const getApprovalLogs = async (req, res) => {
+  try {
+    const logs = await AllianceApprovalLog.find({})
+      .populate('actedBy', 'name')
+      .populate('approvalId', 'title')
+      .sort({ createdAt: -1 })
+      .limit(50);
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };

@@ -7,6 +7,7 @@
  * Reuses the universal action drawer for Approve/Reject/Hold/Override.
  */
 import { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2, XCircle, PauseCircle, ShieldAlert, Clock, Sparkles, Receipt,
   CheckSquare, Square, Download, Filter,
@@ -20,10 +21,13 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
 import {
-  approvalStore, approvalsForActor, pendingForRole, avgApprovalHours, hoursSince, canOverride,
+  avgApprovalHours, hoursSince, canOverride,
   type ApprovalRequest, type ApprovalStatus, type ApprovalAction, type ApprovalRequestType,
 } from "@/lib/approvals";
-import { allianceStore, downloadCSV, allianceUsers, updateExpenseApi } from "@/lib/alliance-data";
+import { 
+  allianceStore, downloadCSV, allianceUsers, updateExpenseApi,
+  fetchApprovals, fetchApprovalLogs, actOnApprovalApi
+} from "@/lib/alliance-data";
 import { toast } from "sonner";
 import { confetti } from "./AllianceShell";
 import { cn } from "@/lib/utils";
@@ -56,7 +60,10 @@ const REQUEST_TYPES: ApprovalRequestType[] = ["Expense Bill", "Task Completion",
 export function ApprovalCenter() {
   const { currentUser } = useAuth();
   const users = allianceUsers || [];
-  const [version, setVersion] = useState(0);
+  const queryClient = useQueryClient();
+  const { data: allApprovals = [] } = useQuery({ queryKey: ["approvals"], queryFn: fetchApprovals });
+  const { data: approvalLogs = [] } = useQuery({ queryKey: ["approvalLogs"], queryFn: fetchApprovalLogs });
+
   const [actionTarget, setActionTarget] = useState<{ req: ApprovalRequest; action: Exclude<ApprovalAction, "Submit"> } | null>(null);
   const [comment, setComment] = useState("");
   const [holdDate, setHoldDate] = useState("");
@@ -71,17 +78,39 @@ export function ApprovalCenter() {
   const isMgr = role === "alliance_manager";
   const isAdmin = role === "admin" || role === "owner";
 
-  const userLabel = (id?: string) => users.find((u) => u.id === id)?.name ?? id ?? "—";
+  const getStrId = (val: any): string => {
+    if (typeof val === 'object' && val !== null) return val.id || val._id || String(val);
+    return String(val || "");
+  };
 
-  const all = useMemo(() => { void version; return userId ? approvalsForActor(userId, role) : []; }, [userId, role, version]);
-  const pending = useMemo(() => { void version; return userId ? pendingForRole(userId, role) : []; }, [userId, role, version]);
-  const logs = useMemo(() => { void version; return approvalStore.logs(); }, [version]);
+  const userLabel = (val?: any) => {
+    if (typeof val === 'object' && val !== null && val.name) return val.name;
+    const id = String(val || "");
+    return users.find((u) => u.id === id)?.name ?? id ?? "-";
+  };
+
+  const all = allApprovals;
+  const pending = all.filter((a) => {
+    if (isMgr) return a.currentApproverRole === "alliance_manager" && (a.status === "Pending" || a.status === "Resubmitted");
+    if (isAdmin) return a.status === "Pending" || a.status === "Resubmitted";
+    return getStrId(a.submittedBy) === userId && (a.status === "Pending" || a.status === "Resubmitted" || a.status === "Hold");
+  });
+
+  const actMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => actOnApprovalApi(id, data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["approvalLogs"] });
+      syncBack(data, data.status);
+      toast.success("Action recorded.");
+    }
+  });
   const filtered = useMemo(() => {
     return all.filter((a) => {
       if (filterStatus !== "all" && a.status !== filterStatus) return false;
       if (filterType !== "all" && a.requestType !== filterType) return false;
       if (search) {
-        const sender = users.find((u) => u.id === a.submittedBy)?.name ?? "";
+        const sender = userLabel(a.submittedBy);
         if (!a.title.toLowerCase().includes(search.toLowerCase()) && !sender.toLowerCase().includes(search.toLowerCase())) return false;
       }
       return true;
@@ -119,14 +148,16 @@ export function ApprovalCenter() {
     if (action === "Reject" && !comment.trim() && !opts?.silent) { toast.error("A reason is required to reject."); return false; }
     if (action === "Hold" && !comment.trim() && !opts?.silent) { toast.error("A reason is required to hold."); return false; }
     if (action === "Override" && !comment.trim() && !opts?.silent) { toast.error("Override requires a justification."); return false; }
-    const result = approvalStore.act(req.id, {
-      action, actorId: userId, actorRole: role, comment: comment || undefined,
-      nextReviewDate: action === "Hold" ? holdDate || undefined : undefined,
+    
+    actMutation.mutate({
+      id: req.id,
+      data: {
+        action,
+        comment: comment || undefined,
+        nextReviewDate: action === "Hold" ? holdDate || undefined : undefined,
+      }
     });
-    if (!result) { if (!opts?.silent) toast.error("You cannot act on this request."); return false; }
-    syncBack(result, result.status);
-    if (action === "Approve" && (result.amount ?? 0) >= 5000) confetti();
-    if (!opts?.silent) toast.success(`${action}d successfully.`);
+    if (action === "Approve" && (req.amount ?? 0) >= 5000) confetti();
     return true;
   };
 
@@ -135,22 +166,18 @@ export function ApprovalCenter() {
     if (!actionTarget) return;
     if (performAction(actionTarget.req, actionTarget.action)) {
       closeDrawer();
-      setVersion((v) => v + 1);
     }
   };
 
   const bulkAct = (action: "Approve" | "Hold") => {
     if (!selected.size) { toast.error("Select at least one request."); return; }
-    let ok = 0;
     selected.forEach((id) => {
-      const req = all.find((a) => a.id === id);
-      if (!req) return;
-      const r = approvalStore.act(id, { action, actorId: userId, actorRole: role, comment: action === "Hold" ? "Bulk hold by admin" : undefined });
-      if (r) { syncBack(r, r.status); ok += 1; }
+      actMutation.mutate({
+        id,
+        data: { action, comment: action === "Hold" ? "Bulk hold by admin" : undefined }
+      });
     });
-    toast.success(`${action}d ${ok} of ${selected.size} requests.`);
     setSelected(new Set());
-    setVersion((v) => v + 1);
   };
 
   const exportCsv = () => {
@@ -242,7 +269,7 @@ export function ApprovalCenter() {
     : "Override decisions, approve manager submissions, run bulk actions.";
 
   // ── Override log (admin only) ──
-  const overrideLog = logs.filter((l) => l.action === "Override").slice(0, 8);
+  const overrideLog = approvalLogs.filter((l: any) => l.action === "Override").slice(0, 8);
 
   return (
     <div className="space-y-4">
@@ -450,10 +477,21 @@ export function ApprovalCenter() {
 /** Compact dashboard widget — used by manager/exec/admin home pages */
 export function PendingApprovalsWidget({ onOpen }: { onOpen?: () => void }) {
   const { currentUser } = useAuth();
+  const { data: all = [] } = useQuery({ queryKey: ["approvals"], queryFn: fetchApprovals });
+
   if (!currentUser) return null;
-  const pending = pendingForRole(currentUser.id, currentUser.role);
+  const role = currentUser.role;
+  const userId = currentUser.id;
+  const isMgr = role === "alliance_manager";
+  const isAdmin = role === "admin" || role === "owner";
+
+  const pending = all.filter((a) => {
+    if (isMgr) return a.currentApproverRole === "alliance_manager" && (a.status === "Pending" || a.status === "Resubmitted");
+    if (isAdmin) return a.status === "Pending" || a.status === "Resubmitted";
+    return (a.submittedBy?.id || a.submittedBy?._id || a.submittedBy) === userId && (a.status === "Pending" || a.status === "Resubmitted" || a.status === "Hold");
+  });
   const urgent = pending.filter((p) => hoursSince(p.createdAt) >= 24).length;
-  const isExec = currentUser.role === "alliance_executive";
+  const isExec = role === "alliance_executive";
 
   return (
     <button

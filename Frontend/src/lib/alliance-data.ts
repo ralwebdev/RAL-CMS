@@ -58,6 +58,14 @@ export const fetchExpenses = async (): Promise<AllianceExpense[]> => {
   const { data } = await axios.get(`${API_URL}/api/alliances/expenses`, getHeaders());
   return data;
 };
+export const fetchApprovals = async (): Promise<any[]> => {
+  const { data } = await axios.get(`${API_URL}/api/alliances/approvals`, getHeaders());
+  return data;
+};
+export const fetchApprovalLogs = async (): Promise<any[]> => {
+  const { data } = await axios.get(`${API_URL}/api/alliances/approvals/logs`, getHeaders());
+  return data;
+};
 
 /* ───────── MUTATIONS ───────── */
 
@@ -108,6 +116,16 @@ export const createExpenseApi = async (input: Partial<AllianceExpense>): Promise
 
 export const updateExpenseApi = async (id: string, input: Partial<AllianceExpense>): Promise<AllianceExpense> => {
   const { data } = await axios.put(`${API_URL}/api/alliances/expenses/${id}`, input, getHeaders());
+  return data;
+};
+
+export const submitApprovalApi = async (input: any): Promise<any> => {
+  const { data } = await axios.post(`${API_URL}/api/alliances/approvals`, input, getHeaders());
+  return data;
+};
+
+export const actOnApprovalApi = async (id: string, input: any): Promise<any> => {
+  const { data } = await axios.put(`${API_URL}/api/alliances/approvals/${id}`, input, getHeaders());
   return data;
 };
 

@@ -5,7 +5,8 @@ import {
   getProposals, createProposal, updateProposal,
   getTasks, createTask, updateTask,
   getEvents, createEvent,
-  getExpenses, createExpense, updateExpense
+  getExpenses, createExpense, updateExpense,
+  getApprovals, submitApproval, actOnApproval, getApprovalLogs
 } from '../controllers/allianceController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -54,5 +55,15 @@ router.route('/expenses')
 
 router.route('/expenses/:id')
   .put(updateExpense);
+
+router.route('/approvals')
+  .get(getApprovals)
+  .post(submitApproval);
+
+router.route('/approvals/logs')
+  .get(getApprovalLogs);
+
+router.route('/approvals/:id')
+  .put(actOnApproval);
 
 export default router;

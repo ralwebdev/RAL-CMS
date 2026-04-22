@@ -11,8 +11,8 @@ import {
   downloadCSV, allianceUsers,
   fetchInstitutions, fetchVisits, fetchProposals,
   createInstitutionApi, updateInstitutionApi, createVisitApi, createProposalApi, updateProposalApi,
-  createTaskApi, updateTaskApi, createEventApi, createExpenseApi,
-  fetchContacts, fetchTasks, fetchEvents, fetchExpenses
+  createTaskApi, updateTaskApi, createEventApi, createExpenseApi, updateExpenseApi,
+  fetchContacts, fetchTasks, fetchEvents, fetchExpenses, submitApprovalApi
 } from "@/lib/alliance-data";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -265,11 +265,27 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
     }
   });
 
+  const approvalMutation = useMutation({
+    mutationFn: submitApprovalApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["approvals"] });
+    }
+  });
+
   const expenseMutation = useMutation({
     mutationFn: createExpenseApi,
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ['expenses'] });
-      toast.success("Expense submitted.");
+      // Automatically submit for approval
+      approvalMutation.mutate({
+        requestId: data.id,
+        requestType: "Expense Bill",
+        title: `${data.category} ₹${data.amount} — ${currentUser?.name}`,
+        amount: data.amount,
+        priority: "Medium",
+        notes: data.description || data.notes,
+      });
+      toast.success("Expense logged & submitted for approval.");
       setShowExpenseForm(false);
     }
   });
