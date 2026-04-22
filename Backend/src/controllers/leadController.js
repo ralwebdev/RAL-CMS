@@ -4,8 +4,14 @@ import Lead from '../models/Lead.js';
 export const getLeads = async (req, res) => {
   try {
     let query = {};
-    if (req.user && req.user.role === 'counselor') {
-      query.assignedCounselor = req.user._id;
+    
+    if (req.user) {
+      if (req.user.role === 'counselor') {
+        query.assignedCounselor = req.user._id;
+      } else if (req.user.role === 'telecaller') {
+        query.assignedTelecallerId = req.user._id;
+      }
+      // admins, marketing_managers, and telecalling_managers will use the default {} query to see all leads.
     }
     const leads = await Lead.find(query);
     res.json(leads);

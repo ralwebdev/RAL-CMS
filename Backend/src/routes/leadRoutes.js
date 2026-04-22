@@ -5,7 +5,7 @@ import { protect } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.route('/')
-  .get(getLeads)
+  .get(protect, getLeads)
   .post(protect, createLead);
 
 router.route('/:id')
