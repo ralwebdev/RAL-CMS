@@ -126,9 +126,9 @@ export default function TelecallingPage() {
   // Use currentUser from AuthContext
   const user = currentUser!;
 
-  const allLeads = leads.filter((l) => l.status !== "Admission" && l.status !== "Lost");
+  const allLeads = leads.filter((l) => !["Admission", "Lost", "Counseling", "Qualified"].includes(l.status));
   const assignedLeads = leads.filter((l) => l.assignedTelecallerId === user.id);
-  const activeAssigned = assignedLeads.filter((l) => l.status !== "Admission" && l.status !== "Lost");
+  const activeAssigned = assignedLeads.filter((l) => !["Admission", "Lost", "Counseling", "Qualified"].includes(l.status));
 
   const [activeTab, setActiveTab] = useState("queue");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -370,6 +370,7 @@ export default function TelecallingPage() {
 
     if (outcomeForm.scheduleWalkIn && outcomeForm.walkInDate) {
       const counselor = allUsers.find(u => u.role === "counselor"); // Pick first available counselor
+      updatedLead.status = "Counseling"; // Auto-transition to Counseling
       updatedLead.walkInStatus = "Scheduled" as any;
       updatedLead.walkInDate = outcomeForm.walkInDate;
       updatedLead.walkInTime = outcomeForm.walkInTime;

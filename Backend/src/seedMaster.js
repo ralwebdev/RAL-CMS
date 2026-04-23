@@ -23,6 +23,10 @@ const users = [
   { name: 'Soumya Saha', email: 'soumya@redapple.com', password: 'password123', role: 'marketing_manager' },
   { name: 'Amit Sharma', email: 'amit@redapple.com', password: 'password123', role: 'admin' },
   { name: 'Rajesh Kapoor', email: 'rajesh@redapple.com', password: 'password123', role: 'owner' },
+  { name: 'Rohit Alliance', email: 'rohit@redapple.com', password: 'alliance123', role: 'alliance_manager' },
+  { name: 'Sneha Alliance', email: 'sneha@redapple.com', password: 'alliance123', role: 'alliance_executive' },
+  { name: 'Neha Accounts', email: 'neha@redapple.com', password: 'accounts123', role: 'accounts_manager' },
+  { name: 'Arjun Accounts', email: 'arjun@redapple.com', password: 'accounts123', role: 'accounts_executive' },
 ];
 
 const mockCampaigns = [
@@ -54,23 +58,12 @@ const mockCampaigns = [
     adSets: [], utmTracking: { utmSource: "google", utmMedium: "paid", utmCampaign: "ai-ml-push", utmContent: "", utmTerm: "data science course" },
     landingPages: [{ url: "https://redapple.com/data-science", pageVersion: "V1", conversionRate: 9.8 }],
   },
-  {
-    name: "Creative Design Sprint", platform: "LinkedIn", objective: "Course Promotion",
-    budget: 8000, dailyBudget: 267, startDate: "2026-02-15", endDate: "2026-04-15",
-    targetLocation: "Pan India", leadsGenerated: 55, costPerLead: 145,
-    ageGroup: "18-28", educationLevel: "Graduate", interestCategory: "Design", targetCity: "Kolkata",
-    approvalStatus: "Active",
-    adSets: [], utmTracking: { utmSource: "linkedin", utmMedium: "paid", utmCampaign: "design-sprint", utmContent: "", utmTerm: "" },
-    landingPages: [],
-  },
 ];
 
 const mockLeadsData = [
+  { name: "John Doe", phone: "9988776655", email: "john@example.com", source: "Website", interestedCourse: "Full Stack Development", status: "New", createdAt: "2026-04-20", leadScore: 80, leadQuality: "Hot", budgetRange: "₹1L", urgencyLevel: "High", currentEducation: "B.Tech", graduationYear: "2024", currentOccupation: "Student", careerGoal: "Software Engineer", preferredStartTime: "Immediate", intentScore: 85, intentCategory: "High Intent", temperature: "Hot", priorityScore: 80, priorityCategory: "High Priority" },
   { name: "Aarav Kumar", phone: "9876543210", email: "aarav@email.com", source: "Meta Ad", interestedCourse: "Full Stack Development", status: "New", createdAt: "2026-03-24", leadScore: 72, leadQuality: "Warm", budgetRange: "₹4.1L", urgencyLevel: "Medium", currentEducation: "B.Tech", graduationYear: "2025", currentOccupation: "Student", collegeInstitution: "VIT University", careerGoal: "Full Stack Developer", preferredStartTime: "Within 1 Month", intentScore: 70, intentCategory: "Medium Intent", temperature: "Warm", priorityScore: 72, priorityCategory: "High Priority" },
   { name: "Diya Singh", phone: "9876543211", email: "diya@email.com", source: "Google Ad", interestedCourse: "AI / ML", status: "Contacted", createdAt: "2026-03-23", leadScore: 85, leadQuality: "Hot", budgetRange: "₹2.6L", urgencyLevel: "High", otherInstitutes: "UpGrad", currentEducation: "M.Sc Statistics", graduationYear: "2024", currentOccupation: "Working Professional", careerGoal: "Data Scientist", preferredStartTime: "Immediate", intentScore: 88, intentCategory: "High Intent", temperature: "Hot", priorityScore: 92, priorityCategory: "High Priority" },
-  { name: "Ananya Joshi", phone: "9876543213", email: "ananya@email.com", source: "Meta Ad", interestedCourse: "UI/UX Design", status: "Counseling", createdAt: "2026-03-21", leadScore: 90, leadQuality: "Hot", budgetRange: "₹90k", urgencyLevel: "High", currentEducation: "BCA", graduationYear: "2025", currentOccupation: "Student", collegeInstitution: "Christ University", careerGoal: "UI/UX Designer", preferredStartTime: "Immediate", intentScore: 92, intentCategory: "High Intent", temperature: "Hot", priorityScore: 95, priorityCategory: "High Priority" },
-  { name: "Vihaan Sharma", phone: "9876543214", email: "vihaan@email.com", source: "Referral", interestedCourse: "Digital Marketing", status: "New", createdAt: "2026-03-25", leadScore: 45, leadQuality: "Cold", budgetRange: "₹50k", currentEducation: "B.Com", graduationYear: "2024", currentOccupation: "Job Seeker", careerGoal: "Digital Marketer", intentScore: 40, intentCategory: "Low Intent", temperature: "Cold", priorityScore: 40, priorityCategory: "Low Priority" },
-  { name: "Isha Patel", phone: "9876543215", email: "isha@email.com", source: "YouTube", interestedCourse: "Full Stack Development", status: "Interested", createdAt: "2026-03-25", leadScore: 65, leadQuality: "Warm", budgetRange: "₹3L", currentEducation: "B.E", graduationYear: "2023", currentOccupation: "Software Trainee", careerGoal: "Senior Developer", intentScore: 68, intentCategory: "Medium Intent", temperature: "Warm", priorityScore: 60, priorityCategory: "Medium Priority" },
 ];
 
 const seedAll = async () => {
@@ -116,13 +109,28 @@ const seedAll = async () => {
     const campaignIds = createdCampaigns.map(c => c._id);
 
     // 4. Seed Leads
-    const leadsToSeed = mockLeadsData.map(lead => ({
-      ...lead,
-      campaignId: getRandom(campaignIds),
-      assignedTelecallerId: getRandom(telecallerIds),
-      assignedCounselor: getRandom(counselorIds),
-      leadOwner: getRandom(adminIds)
-    }));
+    const shreyaUser = createdUsers.find(u => u.email === 'shreya@redapple.com');
+    const manjariUser = createdUsers.find(u => u.email === 'manjari@redapple.com');
+    const ownerUser = createdUsers.find(u => u.role === 'owner');
+
+    const leadsToSeed = mockLeadsData.map((lead, index) => {
+      const data = {
+        ...lead,
+        campaignId: getRandom(campaignIds),
+        assignedTelecallerId: getRandom(telecallerIds),
+        assignedCounselor: getRandom(counselorIds),
+        leadOwner: getRandom(adminIds)
+      };
+      
+      // Ensure John Doe is assigned to Shreya
+      if (lead.name === "John Doe") {
+        data.assignedTelecallerId = shreyaUser._id;
+        data.assignedCounselor = manjariUser._id;
+        data.leadOwner = ownerUser._id;
+      }
+      
+      return data;
+    });
     const createdLeads = await Lead.insertMany(leadsToSeed);
     console.log(`${createdLeads.length} Leads seeded.`);
 

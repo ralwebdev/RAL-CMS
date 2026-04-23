@@ -42,7 +42,7 @@ function metricColor(value: number, good: number, avg: number, inverse = false) 
 }
 
 // ─── Campaign Creation/Edit Form ───
-function CampaignForm({ onSave, onCancel, initialData }: { onSave: (c: Campaign) => void; onCancel: () => void; initialData?: Campaign }) {
+function CampaignForm({ onSave, onCancel, initialData, allUsers }: { onSave: (c: Campaign) => void; onCancel: () => void; initialData?: Campaign; allUsers: any[] }) {
   const [form, setForm] = useState({
     name: initialData?.name || "",
     platform: initialData?.platform || "" as CampaignPlatform | "",
@@ -59,7 +59,7 @@ function CampaignForm({ onSave, onCancel, initialData }: { onSave: (c: Campaign)
     marketingManager: initialData?.marketingManager || "",
     campaignOwner: initialData?.campaignOwner || "",
     campaignNotes: initialData?.campaignNotes || "",
-    approvalStatus: initialData?.approvalStatus || "Draft" as CampaignApprovalStatus,
+    approvalStatus: (initialData?.approvalStatus || "Draft") as CampaignApprovalStatus,
   });
   const [utmForm, setUtmForm] = useState<UTMTracking>(initialData?.utmTracking || { utmSource: "", utmMedium: "", utmCampaign: "", utmContent: "", utmTerm: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -97,6 +97,30 @@ function CampaignForm({ onSave, onCancel, initialData }: { onSave: (c: Campaign)
   };
 
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  const handleSaveDraftLocal = () => {
+    // Basic validation for draft
+    if (!form.name.trim()) {
+      setErrors({ name: "Campaign name is required to save a draft." });
+      return;
+    }
+    const campaign: Campaign = {
+      ...initialData,
+      name: form.name, platform: (form.platform as CampaignPlatform) || "Meta", objective: (form.objective as CampaignObjective) || "Lead Generation",
+      budget: parseFloat(form.budget) || 0, dailyBudget: parseFloat(form.dailyBudget) || 0,
+      startDate: form.startDate || new Date().toISOString().split("T")[0], 
+      endDate: form.endDate || new Date().toISOString().split("T")[0], 
+      targetLocation: form.targetLocation,
+      leadsGenerated: initialData?.leadsGenerated || 0, costPerLead: initialData?.costPerLead || 0, 
+      createdAt: initialData?.createdAt || new Date().toISOString().split("T")[0],
+      ageGroup: form.ageGroup, educationLevel: form.educationLevel,
+      interestCategory: form.interestCategory, targetCity: form.targetCity,
+      marketingManager: form.marketingManager, campaignOwner: form.campaignOwner,
+      campaignNotes: form.campaignNotes, approvalStatus: "Draft",
+      adSets: initialData?.adSets || [], utmTracking: utmForm, landingPages: initialData?.landingPages || [],
+    };
+    onSave(campaign);
+  };
 
   return (
     <div className="space-y-4 pt-2 max-h-[75vh] overflow-y-auto pr-1">
@@ -183,8 +207,30 @@ function CampaignForm({ onSave, onCancel, initialData }: { onSave: (c: Campaign)
       <div className="space-y-3 rounded-lg border border-border p-4">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Team & Approval</p>
         <div className="grid grid-cols-2 gap-3">
-          <div><Label>Marketing Manager</Label><Input value={form.marketingManager} onChange={(e) => set("marketingManager", e.target.value)} /></div>
-          <div><Label>Campaign Owner</Label><Input value={form.campaignOwner} onChange={(e) => set("campaignOwner", e.target.value)} /></div>
+          <div>
+            <Label>Marketing Manager</Label>
+            <Select value={form.marketingManager} onValueChange={(v) => set("marketingManager", v)}>
+              <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {allUsers.filter(u => u.role === 'marketing_manager' || u.role === 'admin').map(u => (
+                  <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Campaign Owner</Label>
+            <Select value={form.campaignOwner} onValueChange={(v) => set("campaignOwner", v)}>
+              <SelectTrigger><SelectValue placeholder="Select owner" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {allUsers.filter(u => u.role === 'admin' || u.role === 'owner').map(u => (
+                  <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div><Label>Campaign Notes</Label><Input value={form.campaignNotes} onChange={(e) => set("campaignNotes", e.target.value)} /></div>
         <div>
@@ -198,7 +244,7 @@ function CampaignForm({ onSave, onCancel, initialData }: { onSave: (c: Campaign)
 
       <div className="flex items-center justify-end gap-2 border-t pt-4">
         <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-        <Button variant="outline" size="sm" onClick={() => { toast.info("Campaign saved as draft."); onCancel(); }}>Save Draft</Button>
+        <Button variant="outline" size="sm" onClick={handleSaveDraftLocal}>Save Draft</Button>
         <Button size="sm" onClick={handleSubmit}>Submit Campaign</Button>
       </div>
     </div>
@@ -378,6 +424,8 @@ export default function CampaignsPage() {
       const token = localStorage.getItem("crm_token");
       // Remove temporary ID
       const { id, ...campaignData } = c;
+      if (campaignData.marketingManager === "none") delete campaignData.marketingManager;
+      if (campaignData.campaignOwner === "none") delete campaignData.campaignOwner;
       const { data } = await axios.post(`${API_URL}/api/campaigns`, campaignData, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -394,6 +442,8 @@ export default function CampaignsPage() {
     try {
       const token = localStorage.getItem("crm_token");
       const { id, ...campaignData } = c;
+      if (campaignData.marketingManager === "none") campaignData.marketingManager = null as any;
+      if (campaignData.campaignOwner === "none") campaignData.campaignOwner = null as any;
       const { data } = await axios.put(`${API_URL}/api/campaigns/${c.id}`, campaignData, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -506,7 +556,7 @@ export default function CampaignsPage() {
             </DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader><DialogTitle>Create Campaign</DialogTitle></DialogHeader>
-              <CampaignForm onSave={handleCreateCampaign} onCancel={() => setCreateOpen(false)} />
+              <CampaignForm onSave={handleCreateCampaign} onCancel={() => setCreateOpen(false)} allUsers={allUsers} />
             </DialogContent>
           </Dialog>
         </div>
@@ -785,7 +835,7 @@ export default function CampaignsPage() {
       <Dialog open={!!editCampaign} onOpenChange={(o) => !o && setEditCampaign(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Campaign: {editCampaign?.name}</DialogTitle></DialogHeader>
-          {editCampaign && <CampaignForm initialData={editCampaign} onSave={handleUpdateCampaign} onCancel={() => setEditCampaign(null)} />}
+          {editCampaign && <CampaignForm initialData={editCampaign} onSave={handleUpdateCampaign} onCancel={() => setEditCampaign(null)} allUsers={allUsers} />}
         </DialogContent>
       </Dialog>
 
