@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
-import { store } from "@/lib/mock-data";
 import { CallLog, CallOutcome, Lead, LeadStatus, Admission, NotInterestedReason, FollowUpType, ConversationInsight } from "@/lib/types";
 import {
   MASTER_CALL_OUTCOMES, MASTER_OBJECTIONS, MASTER_FOLLOWUP_TYPES,
@@ -126,7 +125,6 @@ export default function TelecallingPage() {
   // Use currentUser from AuthContext
   const user = currentUser!;
 
-  const allLeads = leads.filter((l) => !["Admission", "Lost", "Counseling", "Qualified"].includes(l.status));
   const assignedLeads = leads.filter((l) => l.assignedTelecallerId === user.id);
   const activeAssigned = assignedLeads.filter((l) => !["Admission", "Lost", "Counseling", "Qualified"].includes(l.status));
 
@@ -983,7 +981,7 @@ export default function TelecallingPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard title="Overall ATT" value={`${overallATT} Days`} icon={<Timer className="h-5 w-5" />} />
             <StatCard title="Total Admissions" value={admissions.length} icon={<Target className="h-5 w-5" />} />
-            <StatCard title="Active Leads" value={allLeads.length} icon={<Users className="h-5 w-5" />} />
+            <StatCard title="Active Leads" value={leads.filter((l) => !["Admission", "Lost", "Counseling", "Qualified"].includes(l.status)).length} icon={<Users className="h-5 w-5" />} />
             <StatCard title="Lead Contact Rate" value={`${leads.length > 0 ? ((callLogs.length / leads.length) * 100).toFixed(0) : 0}%`} icon={<Activity className="h-5 w-5" />} />
           </div>
 
