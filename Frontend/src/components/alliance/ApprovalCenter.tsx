@@ -147,6 +147,7 @@ export function ApprovalCenter() {
           console.error("Failed to sync back expense status:", error);
         }
       }
+    }
     // Sync Admission status
     if (req.requestType === "Admission") {
       await syncApprovalToAdmission(req, status);
