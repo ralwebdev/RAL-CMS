@@ -57,7 +57,7 @@ function StatusChip({ value }: { value: ApprovalStatus }) {
   );
 }
 
-const REQUEST_TYPES: ApprovalRequestType[] = ["Expense Bill", "Task Completion", "Task Extension", "Travel Reimbursement", "Visit Claim", "Custom Request", "Proposal Approval", "Invoice Dispatch"];
+const REQUEST_TYPES: ApprovalRequestType[] = ["Admission", "Expense Bill", "Task Completion", "Task Extension", "Travel Reimbursement", "Visit Claim", "Custom Request", "Proposal Approval", "Invoice Dispatch"];
 
 export function ApprovalCenter() {
   const { currentUser } = useAuth();

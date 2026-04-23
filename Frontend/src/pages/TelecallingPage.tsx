@@ -286,7 +286,7 @@ export default function TelecallingPage() {
     setShowOutcomeForm(true);
   };
 
-  const saveCallOutcome = () => {
+  const saveCallOutcome = async () => {
     if (!selectedLead) return;
     if (!outcomeForm.outcome) { setOutcomeError("Please select a call outcome before saving."); return; }
     if (outcomeForm.outcome === "Not interested" && !outcomeForm.notInterestedReason) {
@@ -294,6 +294,9 @@ export default function TelecallingPage() {
     }
     if (outcomeForm.outcome === "Call later" && !outcomeForm.callbackDate) {
       setOutcomeError("Follow-up date is required."); return;
+    }
+    if (outcomeForm.scheduleWalkIn && !outcomeForm.walkInDate) {
+      setOutcomeError("Walk-in date is required."); return;
     }
 
     const newLogData = {
@@ -337,39 +340,54 @@ export default function TelecallingPage() {
       newStatus = "Lost";
     }
 
-    const updatedLead = { ...selectedLead };
-    let shouldUpdateLead = false;
+      const updatedLead = { ...selectedLead };
+      let shouldUpdateLead = false;
+      const newActivities = [...(updatedLead.activities || [])];
 
-    if (newStatus !== selectedLead.status) {
-      updatedLead.status = newStatus;
-      if (newStatus === "Lost") {
-        updatedLead.lostReason = (outcomeForm.notInterestedReason || outcome) as any;
+      // 1. Determine if status should change based on outcome
+      if (newStatus !== selectedLead.status) {
+        updatedLead.status = newStatus;
+        if (newStatus === "Lost") {
+          updatedLead.lostReason = (outcomeForm.notInterestedReason || outcome) as any;
+        }
+        shouldUpdateLead = true;
       }
-      shouldUpdateLead = true;
-    }
 
-    if (outcomeForm.scheduleWalkIn && outcomeForm.walkInDate) {
-      const counselor = allUsers.find(u => u.role === "counselor"); // Pick first available counselor
-      updatedLead.status = "Counseling"; // Auto-transition to Counseling
-      updatedLead.walkInStatus = "Scheduled" as any;
-      updatedLead.walkInDate = outcomeForm.walkInDate;
-      updatedLead.walkInTime = outcomeForm.walkInTime;
-      updatedLead.walkInCounselor = counselor ? counselor.id : undefined;
-      updatedLead.assignedCounselor = counselor ? counselor.id : undefined;
-      shouldUpdateLead = true;
-    }
+      // 2. Override status and add walk-in data if scheduled
+      if (outcomeForm.scheduleWalkIn && outcomeForm.walkInDate) {
+        const counselor = allUsers.find(u => u.role === "counselor");
+        updatedLead.status = "Counseling"; // Walk-in ALWAYS goes to Counseling
+        updatedLead.walkInStatus = "Scheduled" as any;
+        updatedLead.walkInDate = outcomeForm.walkInDate;
+        updatedLead.walkInTime = outcomeForm.walkInTime;
+        updatedLead.walkInCounselor = counselor ? counselor.id : undefined;
+        updatedLead.assignedCounselor = counselor ? counselor.id : undefined;
+        
+        newActivities.push({ 
+          leadId: selectedLead.id, 
+          type: "Walk-in Scheduled", 
+          description: `Walk-in counseling scheduled for ${outcomeForm.walkInDate} at ${outcomeForm.walkInTime}`, 
+          timestamp: new Date().toISOString() 
+        });
+        shouldUpdateLead = true;
+      }
 
-    if (shouldUpdateLead) {
-      updatedLead.activities = [
-        ...(updatedLead.activities || []), 
-        { leadId: selectedLead.id, type: "Status Updated", description: `Updated via call outcome: ${outcome}`, timestamp: new Date().toISOString() }
-      ];
-      axios.put(`${API_URL}/api/leads/${selectedLead.id}`, updatedLead, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
-      }).then(() => {
+      // 3. Add general status update activity if any change occurred
+      if (shouldUpdateLead) {
+        newActivities.push({ 
+          leadId: selectedLead.id, 
+          type: "Status Updated", 
+          description: `Updated via call outcome: ${outcome}`, 
+          timestamp: new Date().toISOString() 
+        });
+        
+        updatedLead.activities = newActivities;
+        
+        await axios.put(`${API_URL}/api/leads/${selectedLead.id}`, updatedLead, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
+        });
         queryClient.setQueryData(['leads'], (prev: Lead[] | undefined) => (prev || []).map(l => l.id === selectedLead.id ? updatedLead : l));
-      }).catch(console.error);
-    }
+      }
 
     // If follow-up scheduled, add to follow-ups
     if (outcomeForm.followUpDate) {

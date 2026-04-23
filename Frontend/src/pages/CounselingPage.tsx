@@ -147,13 +147,15 @@ export default function CounselingPage() {
   const updateLead = async (updated: Lead) => {
     try {
       const token = localStorage.getItem("crm_token");
-      const { data } = await axios.put(`${API_URL}/api/leads/${updated.id}`, updated, {
+      const { id, _id, ...updateData } = updated as any; // Strip id and _id from body
+      
+      const { data } = await axios.put(`${API_URL}/api/leads/${id}`, updateData, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const mapped = { ...data, id: data._id };
       setLeads(all => all.map((l) => l.id === mapped.id ? mapped : l));
-    } catch (error) {
-      console.error("Error updating lead:", error);
+    } catch (error: any) {
+      console.error("Error updating lead:", error.response?.data || error.message);
       toast.error("Failed to update lead");
     }
   };
@@ -545,11 +547,11 @@ function CounselingWorkspace({ lead, users, onUpdate, onAddFollowUp }: {
   const markWalkInCompleted = () => {
     const now = new Date();
     const activities: LeadActivity[] = [...(lead.activities || []), {
-      leadId: lead.id, type: "Walk-in Completed",
+      type: "Walk-in Completed",
       description: "Walk-in counseling session completed",
       timestamp: now.toISOString(),
     }, {
-      leadId: lead.id, type: "Ownership Transfer",
+      type: "Ownership Transfer",
       description: `Lead ownership transferred to counselor ${users.find((u) => u.id === (lead.walkInCounselor || lead.assignedCounselor))?.name || ""}`,
       timestamp: new Date(now.getTime() + 1000).toISOString(),
     }];

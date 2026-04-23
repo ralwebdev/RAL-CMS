@@ -365,8 +365,8 @@ export const getApprovals = async (req, res) => {
           { submittedBy: _id }
         ]
       };
-    } else if (role === 'alliance_executive' || role === 'accounts_executive') {
-      // Executives only see what they submitted
+    } else if (role === 'alliance_executive' || role === 'accounts_executive' || role === 'counselor') {
+      // Executives and Counselors only see what they submitted
       query = { submittedBy: _id };
     }
     // Admin/Owner see all

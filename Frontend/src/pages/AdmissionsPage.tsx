@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import axios from "axios";
 import { useAuth } from "@/lib/auth-context";
 import { approvalStore } from "@/lib/approvals";
+import { submitApprovalApi } from "@/lib/alliance-data";
 import { Admission, PaymentStatus, PaymentMode, PaymentType, PaymentHistoryEntry, Lead } from "@/lib/types";
 import {
   MASTER_PAYMENT_MODES, MASTER_COURSE_NAMES, MASTER_BATCH_TIMINGS,
@@ -379,13 +380,13 @@ export default function AdmissionsPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      // Submit to approval system
-      approvalStore.submit({
+      // Submit to approval system (Real API)
+      await submitApprovalApi({
         requestId: data._id,
         requestType: "Admission",
         title: `Admission Approval: ${lead.name} (${form.courseSelected})`,
-        submittedBy: currentUser?.id || "u0",
-        submittedRole: currentUser?.role || "counselor",
+        submittedBy: currentUser?.id,
+        submittedRole: currentUser?.role,
         amount: parseFloat(form.totalFee) || 0,
         notes: `New admission for ${lead.name}. Payment Status: ${form.paymentStatus}`,
       });
