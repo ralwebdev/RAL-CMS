@@ -1,5 +1,5 @@
 import express from 'express';
-import { getAdmissions, createAdmission, updateAdmission } from '../controllers/admissionController.js';
+import { getAdmissions, getAdmissionById, createAdmission, updateAdmission } from '../controllers/admissionController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
