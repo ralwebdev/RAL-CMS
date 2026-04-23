@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import axios from "axios";
+import { useAuth } from "@/lib/auth-context";
+import { approvalStore } from "@/lib/approvals";
 import { Admission, PaymentStatus, PaymentMode, PaymentType, PaymentHistoryEntry, Lead } from "@/lib/types";
 import {
   MASTER_PAYMENT_MODES, MASTER_COURSE_NAMES, MASTER_BATCH_TIMINGS,
@@ -306,6 +308,7 @@ function PaymentForm({
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function AdmissionsPage() {
+  const { currentUser } = useAuth();
   const [admissions, setAdmissions] = useState<Admission[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -369,10 +372,22 @@ export default function AdmissionsPage() {
         parentPhone: form.parentPhone,
         studentBankName: form.studentBankName,
         parentBankName: form.parentBankName,
+        approvalStatus: "Pending", // Initialize as Pending
       };
 
       const { data } = await axios.post(`${API_URL}/api/admissions`, newAdmBody, {
         headers: { Authorization: `Bearer ${token}` }
+      });
+
+      // Submit to approval system
+      approvalStore.submit({
+        requestId: data._id,
+        requestType: "Admission",
+        title: `Admission Approval: ${lead.name} (${form.courseSelected})`,
+        submittedBy: currentUser?.id || "u0",
+        submittedRole: currentUser?.role || "counselor",
+        amount: parseFloat(form.totalFee) || 0,
+        notes: `New admission for ${lead.name}. Payment Status: ${form.paymentStatus}`,
       });
 
       // Update lead status in backend as well
@@ -385,7 +400,7 @@ export default function AdmissionsPage() {
       
       setForm({ leadId: "", courseSelected: "", batch: "", admissionDate: "", totalFee: "", paymentStatus: "Pending", parentName: "", parentPhone: "", studentBankName: "", parentBankName: "" });
       setCreateOpen(false);
-      toast.success("Admission created successfully.");
+      toast.success("Admission created and submitted for approval.");
     } catch (error) {
       console.error("Error creating admission:", error);
       toast.error("Failed to create admission");
@@ -507,6 +522,7 @@ export default function AdmissionsPage() {
                 <th className="p-4 font-medium">Batch</th>
                 <th className="p-4 font-medium">Fee</th>
                 <th className="p-4 font-medium">Payment</th>
+                <th className="p-4 font-medium">Approval</th>
                 <th className="p-4 font-medium">Actions</th>
               </tr>
             </thead>
@@ -532,6 +548,13 @@ export default function AdmissionsPage() {
                     }`}>{a.paymentStatus}</span>
                   </td>
                   <td className="p-4">
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      a.approvalStatus === "Approved" ? "bg-success/10 text-success" :
+                      a.approvalStatus === "Rejected" ? "bg-destructive/10 text-destructive" :
+                      "bg-muted text-muted-foreground"
+                    }`}>{a.approvalStatus || "Pending"}</span>
+                  </td>
+                  <td className="p-4">
                     <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setPaymentDialogAdm(a); }}>
                       <CreditCard className="mr-1 h-3.5 w-3.5" />Pay
                     </Button>
@@ -539,7 +562,7 @@ export default function AdmissionsPage() {
                 </tr>
               ))}
               {admissions.length === 0 && (
-                <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No admissions yet</td></tr>
+                <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No admissions yet</td></tr>
               )}
             </tbody>
           </table>

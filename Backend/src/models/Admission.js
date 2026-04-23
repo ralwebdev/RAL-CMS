@@ -33,7 +33,9 @@ const AdmissionSchema = new mongoose.Schema({
   parentBankName: { type: String },
   scholarshipAmount: { type: Number, default: 0 },
   counselorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  status: { type: String, default: 'Confirmed' }
+  status: { type: String, default: 'Confirmed' },
+  approvalStatus: { type: String, enum: ['Pending', 'Approved', 'Rejected'], default: 'Pending' },
+  invoiceId: { type: String }
 }, { timestamps: true });
 
 export default mongoose.model('Admission', AdmissionSchema);

@@ -9,6 +9,18 @@ export const getAdmissions = async (req, res) => {
   }
 };
 
+export const getAdmissionById = async (req, res) => {
+  try {
+    const admission = await Admission.findById(req.params.id);
+    if (!admission) {
+      return res.status(404).json({ message: 'Admission not found' });
+    }
+    res.json(admission);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const createAdmission = async (req, res) => {
   try {
     const admission = new Admission(req.body);

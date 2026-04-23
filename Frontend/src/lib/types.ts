@@ -351,4 +351,6 @@ export interface Admission {
   scholarshipApplied?: boolean;
   scholarshipPercentage?: number;
   emiSelected?: boolean;
+  approvalStatus?: "Pending" | "Approved" | "Rejected";
+  invoiceId?: string;
 }

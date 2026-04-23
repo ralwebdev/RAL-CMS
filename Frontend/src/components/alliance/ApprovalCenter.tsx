@@ -29,6 +29,7 @@ import {
   fetchApprovals, fetchApprovalLogs, actOnApprovalApi
 } from "@/lib/alliance-data";
 import { updateExpenseApi as updateFinanceExpenseApi } from "@/lib/finance-store";
+import { syncApprovalToAdmission } from "@/lib/admission-approval-bridge";
 import { toast } from "sonner";
 import { confetti } from "./AllianceShell";
 import { cn } from "@/lib/utils";
@@ -146,6 +147,9 @@ export function ApprovalCenter() {
           console.error("Failed to sync back expense status:", error);
         }
       }
+    // Sync Admission status
+    if (req.requestType === "Admission") {
+      await syncApprovalToAdmission(req, status);
     }
   }
 
