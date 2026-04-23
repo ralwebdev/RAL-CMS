@@ -548,42 +548,103 @@ function downloadCSV(filename: string, headers: string[], rows: string[][]) {
 }
 
 function OwnerDashboard() {
-  const campaigns = store.getCampaigns();
-  const leads = store.getLeads();
-  const admissions = store.getAdmissions();
-  const callLogs = store.getCallLogs();
-  const followUps = store.getFollowUps();
-  const users = store.getUsers();
-  const courses = store.getCourses();
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const today = new Date().toISOString().split("T")[0];
 
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        const token = localStorage.getItem("crm_token");
+        const headers = { Authorization: `Bearer ${token}` };
+        const res = await axios.get(`${API_URL}/api/revenue/dashboard`, { headers });
+        const normalizedData = {
+          ...res.data,
+          leads: res.data.leads.map((l: any) => ({ ...l, id: l._id })),
+          admissions: res.data.admissions.map((a: any) => ({ ...a, id: a._id })),
+          campaigns: res.data.campaigns.map((c: any) => ({ ...c, id: c._id })),
+          callLogs: res.data.callLogs.map((cl: any) => ({ ...cl, id: cl._id })),
+          followUps: res.data.followUps.map((f: any) => ({ ...f, id: f._id })),
+          users: res.data.users.map((u: any) => ({ ...u, id: u._id })),
+          payments: res.data.payments.map((p: any) => ({ ...p, id: p._id })),
+          invoices: res.data.invoices.map((i: any) => ({ ...i, id: i._id })),
+          expenses: res.data.expenses.map((e: any) => ({ ...e, id: e._id })),
+          allianceInstitutions: res.data.allianceInstitutions.map((i: any) => ({ ...i, id: i._id })),
+          allianceProposals: res.data.allianceProposals.map((p: any) => ({ ...p, id: p._id }))
+        };
+        setData(normalizedData);
+      } catch (error) {
+        console.error("Error fetching owner dashboard data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchDashboardData();
+  }, []);
+
+  const [activeSection, setActiveSection] = useState("overview");
+  const [drillDown, setDrillDown] = useState<string | null>(null);
+
+  const {
+    campaigns = [],
+    leads = [],
+    admissions = [],
+    callLogs = [],
+    followUps = [],
+    users = [],
+    payments = [],
+    invoices = [],
+    expenses = [],
+    allianceInstitutions = [],
+    allianceProposals = [],
+    targets = { current: BENCHMARKS }
+  } = data || {};
+
+  const courses = store.getCourses(); // Still using store for course catalog for now
+
   // ── Multi-Vertical Data ──
-  const internshipAdmissions = store.getInternshipAdmissions();
-  const collegePrograms = store.getCollegePrograms();
-  const schoolPrograms = store.getSchoolPrograms();
-  const collegeAccounts = store.getCollegeAccounts();
-  const schoolAccounts = store.getSchoolAccounts();
-  const internshipLeads = leads.filter(l => l.programChannel === "Internship Program");
-  const individualLeads = leads.filter(l => !l.programChannel || l.programChannel === "Individual Course Admission");
+  // Map Alliance data to Verticals
+  const collegeAccounts = useMemo(() => allianceInstitutions.filter((i: any) => i.institutionType === "College" || i.institutionType === "University"), [allianceInstitutions]);
+  const schoolAccounts = useMemo(() => allianceInstitutions.filter((i: any) => i.institutionType === "School"), [allianceInstitutions]);
+  
+  const collegePrograms = useMemo(() => allianceProposals.filter((p: any) => {
+    const inst = allianceInstitutions.find((i: any) => (i.id || i._id) === p.institutionId);
+    return inst && (inst.institutionType === "College" || inst.institutionType === "University");
+  }), [allianceProposals, allianceInstitutions]);
+
+  const schoolPrograms = useMemo(() => allianceProposals.filter((p: any) => {
+    const inst = allianceInstitutions.find((i: any) => (i.id || i._id) === p.institutionId);
+    return inst && inst.institutionType === "School";
+  }), [allianceProposals, allianceInstitutions]);
+
+  const internshipAdmissions = useMemo(() => admissions.filter((a: any) => {
+    const lead = leads.find((l: any) => (l.id || l._id) === a.leadId);
+    return lead?.programChannel === "Internship Program";
+  }), [admissions, leads]);
+
+  const internshipLeads = useMemo(() => leads.filter((l: any) => l.programChannel === "Internship Program"), [leads]);
+  const individualLeads = useMemo(() => leads.filter((l: any) => !l.programChannel || l.programChannel === "Individual Course Admission"), [leads]);
 
   // ── Vertical Revenue ──
-  const individualRevenue = admissions.reduce((s, a) => s + (a.totalFee || 0), 0);
-  const internshipRevenue = internshipAdmissions.reduce((s, a) => s + (a.fee || 0), 0);
-  const collegeRevenue = collegePrograms.reduce((s, p) => s + (p.totalRevenue || 0), 0);
-  const schoolRevenue = schoolPrograms.reduce((s, p) => s + (p.totalRevenue || 0), 0);
+  const individualRevenue = admissions.reduce((s: number, a: any) => s + (a.totalFee || 0), 0);
+  const internshipRevenue = internshipAdmissions.reduce((s: number, a: any) => s + (a.totalFee || 0), 0);
+  const collegeRevenue = collegePrograms.reduce((s: number, p: any) => s + (p.amount || 0), 0);
+  const schoolRevenue = schoolPrograms.reduce((s: number, p: any) => s + (p.amount || 0), 0);
   const totalMultiVerticalRevenue = individualRevenue + internshipRevenue + collegeRevenue + schoolRevenue;
 
   // ── Core Financial Metrics ──
-  const totalRevenue = admissions.reduce((s, a) => s + (a.totalFee || 0), 0);
-  const totalCollected = admissions.reduce((s, a) => s + (a.paymentHistory?.reduce((ps, p) => ps + (p.amountPaid || 0), 0) || 0), 0);
-  const totalSpend = campaigns.reduce((s, c) => s + (c.budget || 0), 0);
-  const totalLeadsGenerated = campaigns.reduce((s, c) => s + (c.leadsGenerated || 0), 0);
+  const totalRevenue = admissions.reduce((s: number, a: any) => s + (a.totalFee || 0), 0);
+  const totalCollected = payments.reduce((s: number, p: any) => s + (p.amount || 0), 0);
+  const totalSpend = campaigns.reduce((s: number, c: any) => s + (c.budget || 0), 0);
+  const totalLeadsGenerated = leads.length; // Use total leads instead of campaigns metric for real data
   const cpl = totalLeadsGenerated > 0 ? Math.round(totalSpend / totalLeadsGenerated) : 0;
   const cpa = admissions.length > 0 ? Math.round(totalSpend / admissions.length) : 0;
   const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
   const spendRatio = totalRevenue > 0 ? (totalSpend / totalRevenue) * 100 : 0;
   const avgFee = admissions.length > 0 ? Math.round(totalRevenue / admissions.length) : 0;
   const convRate = leads.length > 0 ? ((admissions.length / leads.length) * 100).toFixed(1) : "0";
+
+
 
   // ── Benchmark Comparisons ──
   const cpaStatus: "excellent" | "healthy" | "attention" = cpa < BENCHMARKS.cpaMin ? "excellent" : cpa <= BENCHMARKS.cpaMax ? "healthy" : "attention";
@@ -594,11 +655,11 @@ function OwnerDashboard() {
   const billingProgress = Math.min((totalRevenue / billingTarget) * 100, 100);
 
   // ── ATT ──
-  const conversionData = admissions.map((adm) => {
-    const lead = leads.find((l) => l.id === adm.leadId);
+  const conversionData = admissions.map((adm: any) => {
+    const lead = leads.find((l: any) => (l.id || l._id) === adm.leadId);
     return lead ? daysBetween(lead.createdAt, adm.admissionDate) : 0;
   });
-  const avgATT = conversionData.length > 0 ? +(conversionData.reduce((s, d) => s + d, 0) / conversionData.length).toFixed(1) : 0;
+  const avgATT = conversionData.length > 0 ? +(conversionData.reduce((s: number, d: number) => s + d, 0) / conversionData.length).toFixed(1) : 0;
 
   const activeLeads = leads.filter((l) => l.status !== "Admission" && l.status !== "Lost");
   const hotLeads = leads.filter((l) => l.temperature === "Hot" && l.status !== "Admission" && l.status !== "Lost");
@@ -776,9 +837,13 @@ function OwnerDashboard() {
     return items.slice(0, 7);
   }, [channelPerf, courseRevenue, walkInAdmissions, admissions, tcPerf, counselorPerf, sourceROI]);
 
-  // ── State ──
-  const [activeSection, setActiveSection] = useState("overview");
-  const [drillDown, setDrillDown] = useState<string | null>(null);
+  if (isLoading || !data) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   // ── Export ──
   const exportReport = (type: string) => {

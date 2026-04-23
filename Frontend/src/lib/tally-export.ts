@@ -126,7 +126,7 @@ export function buildVouchers(
     return t >= from && t <= to;
   };
 
-  let rows: TallyVoucher[] = [];
+  const rows: TallyVoucher[] = [];
 
   const wantSales = type === "sales_invoices" || type === "all_transactions";
   const wantReceipts = type === "receipts" || type === "all_transactions";

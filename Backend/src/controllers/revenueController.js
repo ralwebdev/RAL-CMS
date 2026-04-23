@@ -5,6 +5,13 @@ import CallLog from '../models/CallLog.js';
 import FollowUp from '../models/FollowUp.js';
 import User from '../models/User.js';
 import Target from '../models/Target.js';
+import FinancePayment from '../models/FinancePayment.js';
+import FinanceInvoice from '../models/FinanceInvoice.js';
+import FinanceExpense from '../models/FinanceExpense.js';
+import AllianceInstitution from '../models/AllianceInstitution.js';
+import AllianceProposal from '../models/AllianceProposal.js';
+import AllianceVisit from '../models/AllianceVisit.js';
+import AllianceTask from '../models/AllianceTask.js';
 
 /**
  * Helper to get date ranges for the current and previous month
@@ -38,7 +45,14 @@ export const getRevenueDashboard = async (req, res) => {
             followUps, 
             users,
             currentTarget,
-            prevTarget
+            prevTarget,
+            payments,
+            invoices,
+            expenses,
+            allianceInstitutions,
+            allianceProposals,
+            allianceVisits,
+            allianceTasks
         ] = await Promise.all([
             Lead.find(),
             Admission.find(),
@@ -47,7 +61,14 @@ export const getRevenueDashboard = async (req, res) => {
             FollowUp.find(),
             User.find().select('-password'),
             Target.findOne({ month: current.key }),
-            Target.findOne({ month: previous.key })
+            Target.findOne({ month: previous.key }),
+            FinancePayment.find(),
+            FinanceInvoice.find(),
+            FinanceExpense.find(),
+            AllianceInstitution.find(),
+            AllianceProposal.find(),
+            AllianceVisit.find(),
+            AllianceTask.find()
         ]);
 
         res.json({
@@ -57,6 +78,13 @@ export const getRevenueDashboard = async (req, res) => {
             callLogs,
             followUps,
             users,
+            payments,
+            invoices,
+            expenses,
+            allianceInstitutions,
+            allianceProposals,
+            allianceVisits,
+            allianceTasks,
             targets: {
                 current: currentTarget || { monthlyTarget: 600000, roasTarget: 10, maxCPA: 6500, month: current.key },
                 previous: prevTarget || { monthlyTarget: 600000, roasTarget: 10, maxCPA: 6500, month: previous.key }

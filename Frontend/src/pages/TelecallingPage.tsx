@@ -2,7 +2,12 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
-import { store } from "@/lib/mock-data";
+import { useLeads } from "@/hooks/use-leads";
+import { useCalllogs } from "@/hooks/use-calllogs";
+import { useFollowups } from "@/hooks/use-followups";
+import { useAdmissions } from "@/hooks/use-admissions";
+import { useUsers } from "@/hooks/use-users";
+import { useQueryClient } from "@tanstack/react-query";
 import { CallLog, CallOutcome, Lead, LeadStatus, Admission, NotInterestedReason, FollowUpType, ConversationInsight } from "@/lib/types";
 import {
   MASTER_CALL_OUTCOMES, MASTER_OBJECTIONS, MASTER_FOLLOWUP_TYPES,
@@ -88,40 +93,15 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function TelecallingPage() {
   const { currentUser } = useAuth();
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [callLogs, setCallLogs] = useState<CallLog[]>([]);
-  const [followUps, setFollowUps] = useState<any[]>([]);
-  const [admissions, setAdmissions] = useState<any[]>([]);
-  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const queryClient = useQueryClient();
 
-  const fetchData = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const token = localStorage.getItem("crm_token");
-      const headers = { Authorization: `Bearer ${token}` };
-      const [leadsRes, callLogsRes, followUpsRes, admissionsRes, usersRes] = await Promise.all([
-        axios.get(`${API_URL}/api/leads`, { headers }),
-        axios.get(`${API_URL}/api/calllogs`, { headers }),
-        axios.get(`${API_URL}/api/followups`, { headers }),
-        axios.get(`${API_URL}/api/admissions`, { headers }),
-        axios.get(`${API_URL}/api/users`, { headers })
-      ]);
-      setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
-      setCallLogs(callLogsRes.data.map((c: any) => ({ ...c, id: c._id })));
-      setFollowUps(followUpsRes.data.map((f: any) => ({ ...f, id: f._id })));
-      setAdmissions(admissionsRes.data.map((a: any) => ({ ...a, id: a._id })));
-      setAllUsers(usersRes.data.map((u: any) => ({ ...u, id: u._id })));
-    } catch (error) {
-      console.error("Error fetching data:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const { data: leads = [], isLoading: isLoadingLeads } = useLeads();
+  const { data: callLogs = [], isLoading: isLoadingCallLogs } = useCalllogs();
+  const { data: followUps = [], isLoading: isLoadingFollowUps, refetch: refetchFollowUps } = useFollowups();
+  const { data: admissions = [], isLoading: isLoadingAdmissions } = useAdmissions();
+  const { data: allUsers = [], isLoading: isLoadingUsers } = useUsers();
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const isLoading = isLoadingLeads || isLoadingCallLogs || isLoadingFollowUps || isLoadingAdmissions || isLoadingUsers;
 
   // Use currentUser from AuthContext
   const user = currentUser!;
@@ -332,7 +312,7 @@ export default function TelecallingPage() {
     axios.post(`${API_URL}/api/calllogs`, newLogData, {
       headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
     }).then(res => {
-      setCallLogs(prev => [...prev, { ...res.data, id: res.data._id }]);
+      queryClient.setQueryData(['calllogs'], (prev: CallLog[] | undefined) => [...(prev || []), { ...res.data, id: res.data._id }]);
     }).catch(console.error);
 
     // Resolve any pending follow-ups for this lead
@@ -341,7 +321,7 @@ export default function TelecallingPage() {
       axios.put(`${API_URL}/api/followups/${fu.id}`, { completed: true }, {
         headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
       }).then(() => {
-        setFollowUps(prev => prev.map(p => p.id === fu.id ? { ...p, completed: true } : p));
+        queryClient.setQueryData(['followups'], (prev: any[] | undefined) => (prev || []).map(p => p.id === fu.id ? { ...p, completed: true } : p));
       }).catch(console.error);
     });
 
@@ -387,7 +367,7 @@ export default function TelecallingPage() {
       axios.put(`${API_URL}/api/leads/${selectedLead.id}`, updatedLead, {
         headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
       }).then(() => {
-        setLeads(prev => prev.map(l => l.id === selectedLead.id ? updatedLead : l));
+        queryClient.setQueryData(['leads'], (prev: Lead[] | undefined) => (prev || []).map(l => l.id === selectedLead.id ? updatedLead : l));
       }).catch(console.error);
     }
 
@@ -401,7 +381,7 @@ export default function TelecallingPage() {
       axios.post(`${API_URL}/api/followups`, newFUBody, {
         headers: { Authorization: `Bearer ${localStorage.getItem("crm_token")}` }
       }).then(res => {
-        setFollowUps(prev => [...prev, { ...res.data, id: res.data._id }]);
+        queryClient.setQueryData(['followups'], (prev: any[] | undefined) => [...(prev || []), { ...res.data, id: res.data._id }]);
       }).catch(console.error);
       
       showToast(outcomeForm.scheduleWalkIn ? "Walk-in counseling scheduled successfully." : "Call outcome recorded. Follow-up added to your task queue.");
@@ -429,10 +409,10 @@ export default function TelecallingPage() {
       await axios.put(`${API_URL}/api/followups/${id}`, { completed: true }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setFollowUps(prev => prev.map(f => f.id === id ? { ...f, completed: true } : f));
+      queryClient.setQueryData(['followups'], (prev: any[] | undefined) => (prev || []).map(f => f.id === id ? { ...f, completed: true } : f));
       toast.success("Follow-up marked as completed.");
       // Refresh to update stats
-      fetchData();
+      refetchFollowUps();
     } catch (error) {
       console.error("Error completing follow-up:", error);
       toast.error("Failed to update follow-up.");
@@ -1222,7 +1202,7 @@ export default function TelecallingPage() {
                 });
 
                 const updatedMapped = { ...data, id: data._id };
-                setLeads(leads.map((l) => (l.id === leadId ? updatedMapped : l)));
+                queryClient.setQueryData(['leads'], (prev: Lead[] | undefined) => (prev || []).map(l => l.id === leadId ? updatedMapped : l));
                 toast.success(`${lead.name} moved to ${newStatus}`);
 
                 // If moved to Interested or Connected, and it's the active lead, help user log follow-up
