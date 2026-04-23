@@ -48,11 +48,11 @@ To fully get rid of mock data, follow the [Mock Migration Guide](./MOCK_MIGRATIO
 
 ## 4. Dependency Check
 
-### 3.1 Current Stack
+### 4.1 Current Stack
 - **Backend:** Node.js, Express, Mongoose, JWT.
 - **Frontend:** React, Vite, Tailwind CSS, Shadcn UI, TanStack Query, Recharts.
 
-### 3.2 Evaluation & Alternatives
+### 4.2 Evaluation & Alternatives
 - **Backend Validation:** Currently, validation is minimal. **Recommendation:** Add `Zod` or `Joi` on the backend to enforce strict schema validation before hitting the database.
 - **Logging:** Uses `console.log`. **Recommendation:** Use `Winston` or `Pino` for structured logging and better debugging in production.
 - **State Management:** The mix of `axios` and `fetch` across different components should be standardized. **Recommendation:** Standardize on `TanStack Query` with a consistent `fetch` wrapper.
@@ -124,11 +124,11 @@ if (newLead) {
 
 ## 6. Documentation & Scalability
 
-### 5.1 Scalability
+### 6.1 Scalability
 - **Architecture:** The modular route/controller/model structure is scalable.
 - **Abstraction:** To improve, a **Service Layer** should be introduced between controllers and models to handle complex business logic and keep controllers thin.
 
-### 5.2 Documentation Improvements
+### 6.2 Documentation Improvements
 - **API Documentation:** Lack of Swagger/OpenAPI spec makes frontend-backend integration harder for new devs.
 - **README:** Needs a comprehensive setup guide, environment variable list, and architectural overview.
 
