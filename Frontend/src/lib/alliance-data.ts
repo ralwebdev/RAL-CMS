@@ -62,11 +62,11 @@ export const fetchExpenses = async (): Promise<AllianceExpense[]> => {
 };
 export const fetchApprovals = async (): Promise<any[]> => {
   const { data } = await axios.get(`${API_URL}/api/alliances/approvals`, getHeaders());
-  return data;
+  return (data || []).map((a: any) => ({ ...a, id: a._id }));
 };
 export const fetchApprovalLogs = async (): Promise<any[]> => {
   const { data } = await axios.get(`${API_URL}/api/alliances/approvals/logs`, getHeaders());
-  return data;
+  return (data || []).map((l: any) => ({ ...l, id: l._id }));
 };
 
 /* ───────── MUTATIONS ───────── */

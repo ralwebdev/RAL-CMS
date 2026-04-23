@@ -151,7 +151,7 @@ export function AccountsModule() {
 
         <TabsContent value="dashboard" className="mt-4"><DashboardTab onJump={setTab} /></TabsContent>
         <TabsContent value="revenue" className="mt-4"><RevenueTab /></TabsContent>
-        <TabsContent value="projections" className="mt-4"><ProjectionsTab /></TabsContent>
+        <TabsContent value="projections" className="mt-4"><ProjectionsTab data={fin} /></TabsContent>
         <TabsContent value="billing" className="mt-4"><BillingTab role={role} /></TabsContent>
         <TabsContent value="collections" className="mt-4"><CollectionsTab role={role} /></TabsContent>
         <TabsContent value="emi" className="mt-4"><EmiTab /></TabsContent>
@@ -175,9 +175,9 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
   const editsToday = edits.filter(e => new Date(e.at).toDateString() === todayKey).length;
   const highValueChanges = edits.filter(e => e.highValue).length;
   const revisedBilling = edits.reduce((s, e) => s + e.amountDelta, 0);
-  const emiMetrics = computeEmiMetrics(fin.emiSchedules);
-  const riskRows = computeStudentRisk(fin.invoices, fin.emiSchedules);
-  const riskAtStake = riskRows.filter(r => r.riskLevel !== "low").reduce((s, r) => s + r.balanceDue, 0);
+  const emiMetrics = computeEmiMetrics(fin.emiSchedules || []);
+  const riskRows = computeStudentRisk(fin.invoices || [], fin.emiSchedules || []);
+  const riskAtStake = riskRows.filter(r => r.riskLevel !== "low").reduce((s, r) => s + (r.balanceDue || 0), 0);
   const totalBilled = fin.invoices.reduce((s, i) => s + (i.total ?? (i as any).totalAmount ?? 0), 0);
   const totalCollected = fin.payments.reduce((s, p) => s + (p.amount ?? 0), 0);
   const outstanding = fin.invoices.reduce((s, i) => {
@@ -1080,7 +1080,7 @@ function BudgetsTab() {
   const [open, setOpen] = useState(false);
 
   const data = fin.budgets.map(b => {
-    const actual = fin.expenses.filter(e => e.category === b.category && e.status === "Approved" && e.spendDate.startsWith(b.month)).reduce((s, e) => s + e.total, 0);
+    const actual = (fin.expenses || []).filter(e => e.category === b.category && e.status === "Approved" && e?.spendDate?.startsWith(b.month)).reduce((s, e) => s + (e.total || 0), 0);
     const variance = b.plannedAmount - actual;
     return { ...b, actual, variance, variancePct: b.plannedAmount ? (variance / b.plannedAmount * 100) : 0 };
   });
@@ -1148,9 +1148,10 @@ function BudgetForm({ onDone }: { onDone: () => void }) {
 /* ───────── Profitability ───────── */
 function ProfitTab() {
   const fin = useFinance();
-  const byStream = fin.invoices.reduce<Record<string, { revenue: number }>>((acc, i) => {
-    acc[i.revenueStream] = acc[i.revenueStream] || { revenue: 0 };
-    acc[i.revenueStream].revenue += i.amountPaid;
+  const byStream = (fin.invoices || []).reduce<Record<string, { revenue: number }>>((acc, i) => {
+    const stream = i.revenueStream || "Direct";
+    acc[stream] = acc[stream] || { revenue: 0 };
+    acc[stream].revenue += (i.amountPaid || 0);
     return acc;
   }, {});
   const totalExp = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.total, 0);
@@ -1203,8 +1204,8 @@ function CashflowTab() {
   // Forecast: sum of expected receivables (open invoices due in next N days) and payables
   const horizons = [30, 60, 90];
   const forecast = horizons.map(d => {
-    const receivable = fin.invoices.filter(i => i.status !== "Paid" && i.status !== "Cancelled" && new Date(i.dueDate).getTime() < Date.now() + d * 86400000).reduce((s, i) => s + (i.total - i.amountPaid), 0);
-    const payable = fin.vendorBills.filter(b => b.status !== "Paid" && new Date(b.dueDate).getTime() < Date.now() + d * 86400000).reduce((s, b) => s + (b.total - b.paid), 0);
+    const receivable = (fin.invoices || []).filter(i => i.status !== "Paid" && i.status !== "Cancelled" && i.dueDate && new Date(i.dueDate).getTime() < Date.now() + d * 86400000).reduce((s, i) => s + ((i.total || 0) - (i.amountPaid || 0)), 0);
+    const payable = (fin.vendorBills || []).filter(b => b.status !== "Paid" && b.dueDate && new Date(b.dueDate).getTime() < Date.now() + d * 86400000).reduce((s, b) => s + ((b.total || 0) - (b.paid || 0)), 0);
     return { name: `${d}D`, receivable, payable, net: receivable - payable };
   });
 
@@ -1244,8 +1245,8 @@ function CashflowTab() {
 /* ───────── GST ───────── */
 function GstTab() {
   const fin = useFinance();
-  const output = fin.invoices.reduce((s, i) => s + i.cgst + i.sgst + i.igst, 0);
-  const input = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.gst, 0);
+  const output = (fin.invoices || []).reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
+  const input = (fin.expenses || []).filter(e => e.status === "Approved").reduce((s, e) => s + (e.gst || 0), 0);
   const payable = Math.max(0, output - input);
 
   const cols: Column<Invoice>[] = [

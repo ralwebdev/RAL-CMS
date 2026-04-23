@@ -92,7 +92,7 @@ function buildEmptyMonths(horizon: number): MonthBucket[] {
 // Future months get 0 here — the forecast layers fill them.
 function applyConfirmedCollections(buckets: MonthBucket[], payments: Payment[]) {
   const byMonth = new Map<string, number>();
-  payments.forEach(p => {
+  (payments || []).forEach(p => {
     const k = monthKey(new Date(p.paidOn));
     byMonth.set(k, (byMonth.get(k) || 0) + p.amount);
   });
@@ -104,7 +104,7 @@ function applyConfirmedCollections(buckets: MonthBucket[], payments: Payment[]) 
 // ────────────────────────────── Layer 2: Scheduled EMIs ──────────────────────────────
 function applyScheduledEmis(buckets: MonthBucket[], emis: EmiSchedule[], recoveryRate: number) {
   const byMonth = new Map<string, number>();
-  emis.forEach(e => {
+  (emis || []).forEach(e => {
     if (e.status === "Paid") return;
     const k = monthKey(new Date(e.dueDate));
     byMonth.set(k, (byMonth.get(k) || 0) + e.amount * recoveryRate);
@@ -118,7 +118,7 @@ function applyScheduledEmis(buckets: MonthBucket[], emis: EmiSchedule[], recover
 // For long-duration enrolments, assume a renewal in the same calendar month
 // of year 2 and year 3, scaled by continuation rates.
 function applyContinuation(buckets: MonthBucket[], invoices: Invoice[], rates: ContinuationRates) {
-  invoices.filter(isLongDuration).forEach(inv => {
+  (invoices || []).filter(isLongDuration).forEach(inv => {
     const issued = new Date(inv.issueDate);
     const annualRevenue = inv.total / 3; // approximate per-year split for 3-year track
     const y2 = monthKey(addMonths(issued, 12));
@@ -149,7 +149,7 @@ export function computeAdmissionTrend(invoices: Invoice[], windowMonths = 6): Ad
     const d = addMonths(start, i);
     buckets.set(monthKey(d), { count: 0, revenue: 0 });
   }
-  invoices.forEach(inv => {
+  (invoices || []).forEach(inv => {
     const k = monthKey(new Date(inv.issueDate));
     const b = buckets.get(k);
     if (b) { b.count += 1; b.revenue += inv.total; }
@@ -287,7 +287,7 @@ export function computeEmiMetrics(emis: EmiSchedule[]): EmiMetrics {
   const monthEnd = addMonths(now, 1);
   const day30 = addMonths(now, 0); day30.setDate(now.getDate() + 30);
   let todayDue = 0, weekDue = 0, monthDue = 0, overdueTotal = 0, next30Expected = 0;
-  emis.forEach(e => {
+  (emis || []).forEach(e => {
     if (e.status === "Paid") return;
     const due = new Date(e.dueDate);
     if (due.toDateString() === todayKey) todayDue += e.amount;
@@ -375,10 +375,10 @@ export interface BreakdownRow { name: string; value: number; count: number }
 
 export function revenueByCourse(invoices: Invoice[]): BreakdownRow[] {
   const m = new Map<string, { value: number; count: number }>();
-  invoices.forEach(i => {
-    const k = i.programName || i.revenueStream;
+  (invoices || []).forEach(i => {
+    const k = i.programName || i.revenueStream || "Uncategorized";
     const cur = m.get(k) || { value: 0, count: 0 };
-    cur.value += i.total; cur.count += 1;
+    cur.value += i.total || 0; cur.count += 1;
     m.set(k, cur);
   });
   return Array.from(m.entries()).map(([name, v]) => ({ name, ...v }))
@@ -387,10 +387,11 @@ export function revenueByCourse(invoices: Invoice[]): BreakdownRow[] {
 
 export function revenueBySource(invoices: Invoice[]): BreakdownRow[] {
   const m = new Map<string, { value: number; count: number }>();
-  invoices.forEach(i => {
-    const cur = m.get(i.revenueStream) || { value: 0, count: 0 };
-    cur.value += i.total; cur.count += 1;
-    m.set(i.revenueStream, cur);
+  (invoices || []).forEach(i => {
+    const stream = i.revenueStream || "Direct";
+    const cur = m.get(stream) || { value: 0, count: 0 };
+    cur.value += i.total || 0; cur.count += 1;
+    m.set(stream, cur);
   });
   return Array.from(m.entries()).map(([name, v]) => ({ name, ...v }))
     .sort((a, b) => b.value - a.value);
@@ -411,19 +412,21 @@ export function computeRevenueKpis(
   payments: Payment[],
   monthlyBurn: number,
 ): RevenueKpis {
-  const totalBilled = invoices.reduce((s, i) => s + i.total, 0);
-  const totalCollected = payments.reduce((s, p) => s + p.amount, 0);
-  const overdue = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + (i.total - i.amountPaid), 0);
+  const safeInvoices = invoices || [];
+  const safePayments = payments || [];
+  const totalBilled = safeInvoices.reduce((s, i) => s + (i.total || 0), 0);
+  const totalCollected = safePayments.reduce((s, p) => s + (p.amount || 0), 0);
+  const overdue = safeInvoices.filter(i => i.status === "Overdue").reduce((s, i) => s + ((i.total || 0) - (i.amountPaid || 0)), 0);
 
   const now = new Date();
   const last3MonthsKeys = [0, 1, 2].map(o => monthKey(addMonths(now, -o)));
-  const last3Sum = payments.filter(p => last3MonthsKeys.includes(monthKey(new Date(p.paidOn))))
-    .reduce((s, p) => s + p.amount, 0);
+  const last3Sum = safePayments.filter(p => last3MonthsKeys.includes(monthKey(new Date(p.paidOn))))
+    .reduce((s, p) => s + (p.amount || 0), 0);
   const mrr = last3Sum / 3;
 
-  const studentCount = new Set(invoices.map(i => i.customerId)).size || 1;
+  const studentCount = new Set(safeInvoices.map(i => i.customerId)).size || 1;
   const ltv = totalBilled / studentCount;
-  const avgTicket = invoices.length > 0 ? totalBilled / invoices.length : 0;
+  const avgTicket = safeInvoices.length > 0 ? totalBilled / safeInvoices.length : 0;
 
   return {
     mrr,

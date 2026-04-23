@@ -32,8 +32,8 @@ function useFin() {
   return useSyncExternalStore(subscribeFinance, getFinance, getFinance);
 }
 
-export function ProjectionsTab() {
-  const fin = useFin();
+export function ProjectionsTab({ data }: { data?: any }) {
+  const fin = data || useFin();
   const { toast } = useToast();
   const [scenario, setScenario] = useState<ScenarioKey>("expected");
   const [horizon, setHorizon] = useState<12 | 36>(12);
@@ -43,22 +43,22 @@ export function ProjectionsTab() {
 
   const monthly = useMemo(
     () => projectMonthly({
-      invoices: fin.invoices, payments: fin.payments, emiSchedules: fin.emiSchedules,
+      invoices: fin?.invoices || [], payments: fin?.payments || [], emiSchedules: fin?.emiSchedules || [],
       horizonMonths: horizon, scenario, continuation: cont, scenarios: scenariosLocal,
     }),
     [fin, horizon, scenario, cont, scenariosLocal],
   );
 
   const yearly = useMemo(
-    () => projectYearly(fin.invoices, fin.payments, fin.emiSchedules, cont, scenariosLocal),
+    () => projectYearly(fin?.invoices || [], fin?.payments || [], fin?.emiSchedules || [], cont, scenariosLocal),
     [fin, cont, scenariosLocal],
   );
 
-  const trend = useMemo(() => computeAdmissionTrend(fin.invoices, 6), [fin.invoices]);
-  const emiMetrics = useMemo(() => computeEmiMetrics(fin.emiSchedules), [fin.emiSchedules]);
-  const risk = useMemo(() => computeStudentRisk(fin.invoices, fin.emiSchedules), [fin.invoices, fin.emiSchedules]);
-  const courseBreak = useMemo(() => revenueByCourse(fin.invoices), [fin.invoices]);
-  const sourceBreak = useMemo(() => revenueBySource(fin.invoices), [fin.invoices]);
+  const trend = useMemo(() => computeAdmissionTrend(fin?.invoices || [], 6), [fin?.invoices]);
+  const emiMetrics = useMemo(() => computeEmiMetrics(fin?.emiSchedules || []), [fin?.emiSchedules]);
+  const risk = useMemo(() => computeStudentRisk(fin?.invoices || [], fin?.emiSchedules || []), [fin?.invoices, fin?.emiSchedules]);
+  const courseBreak = useMemo(() => revenueByCourse(fin?.invoices || []), [fin?.invoices]);
+  const sourceBreak = useMemo(() => revenueBySource(fin?.invoices || []), [fin?.invoices]);
 
   const monthlyBurn = useMemo(() => {
     const approved = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.total, 0);
@@ -66,7 +66,7 @@ export function ProjectionsTab() {
   }, [fin.expenses]);
 
   const kpis = useMemo(
-    () => computeRevenueKpis(fin.invoices, fin.payments, monthlyBurn || 1),
+    () => computeRevenueKpis(fin?.invoices || [], fin?.payments || [], monthlyBurn || 1),
     [fin, monthlyBurn],
   );
 

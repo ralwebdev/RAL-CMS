@@ -1,16 +1,19 @@
 import { useAuth, roleLabels } from "@/lib/auth-context";
-import { store, BENCHMARKS } from "@/lib/mock-data";
+import { BENCHMARKS } from "@/lib/mock-data";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
   Phone, PhoneCall, Users, Target, Calendar, GraduationCap, Megaphone,
   TrendingUp, DollarSign, Activity, Shield, Clock, Star, Zap, BarChart3,
   UserPlus, Settings, AlertTriangle, Timer, Download, ArrowUpRight, CheckCircle2, FileText,
-  Building2, School,
+  Building2, School, Pencil, Trash2,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -430,11 +433,44 @@ function MarketingDashboard() {
    TELECALLING MANAGER DASHBOARD
    ═══════════════════════════════════════════════════════════════ */
 function TelecallingManagerDashboard() {
-  const leads = store.getLeads();
-  const callLogs = store.getCallLogs();
-  const admissions = store.getAdmissions();
-  const users = store.getUsers();
+  const [leads, setLeads] = useState<any[]>([]);
+  const [callLogs, setCallLogs] = useState<any[]>([]);
+  const [admissions, setAdmissions] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const today = new Date().toISOString().split("T")[0];
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const token = localStorage.getItem("crm_token");
+        const headers = { Authorization: `Bearer ${token}` };
+        const [leadsRes, callLogsRes, admissionsRes, usersRes] = await Promise.all([
+          axios.get(`${API_URL}/api/leads`, { headers }),
+          axios.get(`${API_URL}/api/calllogs`, { headers }),
+          axios.get(`${API_URL}/api/admissions`, { headers }),
+          axios.get(`${API_URL}/api/users`, { headers }),
+        ]);
+        setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+        setCallLogs(callLogsRes.data.map((c: any) => ({ ...c, id: c._id })));
+        setAdmissions(admissionsRes.data.map((a: any) => ({ ...a, id: a._id })));
+        setUsers(usersRes.data.map((u: any) => ({ ...u, id: u._id })));
+      } catch (error) {
+        console.error("Error fetching telecalling manager data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   const telecallers = users.filter((u) => u.role === "telecaller");
   const conversionData = admissions.map((adm) => {
@@ -1491,11 +1527,99 @@ function OwnerDashboard() {
 /* ═══════════════════════════════════════════════════════════════
    ADMIN DASHBOARD
    ═══════════════════════════════════════════════════════════════ */
+const USER_ROLES = [
+  "admin", "marketing_manager", "telecaller", "counselor", "telecalling_manager",
+  "owner", "alliance_manager", "alliance_executive", "accounts_manager", "accounts_executive"
+] as const;
+
 function AdminDashboard() {
-  const leads = store.getLeads();
-  const admissions = store.getAdmissions();
-  const users = store.getUsers();
-  const campaigns = store.getCampaigns();
+  const [leads, setLeads] = useState<any[]>([]);
+  const [admissions, setAdmissions] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // User CRUD state
+  const [userDialogOpen, setUserDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [userForm, setUserForm] = useState({ name: "", email: "", password: "", role: "telecaller" });
+  const [saving, setSaving] = useState(false);
+
+  const fetchData = async () => {
+    try {
+      const token = localStorage.getItem("crm_token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const [leadsRes, admissionsRes, usersRes, campaignsRes] = await Promise.all([
+        axios.get(`${API_URL}/api/leads`, { headers }),
+        axios.get(`${API_URL}/api/admissions`, { headers }),
+        axios.get(`${API_URL}/api/users`, { headers }),
+        axios.get(`${API_URL}/api/campaigns`, { headers }),
+      ]);
+      setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+      setAdmissions(admissionsRes.data.map((a: any) => ({ ...a, id: a._id })));
+      setUsers(usersRes.data.map((u: any) => ({ ...u, id: u._id })));
+      setCampaigns(campaignsRes.data.map((c: any) => ({ ...c, id: c._id })));
+    } catch (error) {
+      console.error("Error fetching admin data:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchData(); }, []);
+
+  const openAddUser = () => {
+    setEditingUser(null);
+    setUserForm({ name: "", email: "", password: "", role: "telecaller" });
+    setUserDialogOpen(true);
+  };
+
+  const openEditUser = (u: any) => {
+    setEditingUser(u);
+    setUserForm({ name: u.name, email: u.email, password: "", role: u.role });
+    setUserDialogOpen(true);
+  };
+
+  const handleSaveUser = async () => {
+    setSaving(true);
+    try {
+      const token = localStorage.getItem("crm_token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const body: any = { name: userForm.name, email: userForm.email, role: userForm.role };
+      if (userForm.password) body.password = userForm.password;
+      if (editingUser) {
+        await axios.put(`${API_URL}/api/users/${editingUser.id}`, body, { headers });
+      } else {
+        if (!userForm.password) { alert("Password is required for new users."); return; }
+        await axios.post(`${API_URL}/api/users`, body, { headers });
+      }
+      setUserDialogOpen(false);
+      fetchData();
+    } catch (error: any) {
+      alert(error?.response?.data?.message || "Failed to save user.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm("Are you sure you want to delete this user?")) return;
+    try {
+      const token = localStorage.getItem("crm_token");
+      await axios.delete(`${API_URL}/api/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
+      fetchData();
+    } catch (error: any) {
+      alert(error?.response?.data?.message || "Failed to delete user.");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1510,9 +1634,14 @@ function AdminDashboard() {
         <StatCard title="Campaigns" value={campaigns.length} icon={<Megaphone className="h-5 w-5" />} />
       </div>
 
-      {/* User management */}
+      {/* User Management */}
       <div className="rounded-xl bg-card p-5 shadow-card">
-        <h3 className="mb-4 text-sm font-semibold text-card-foreground flex items-center gap-2"><Settings className="h-4 w-4" /> User Management</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2"><Settings className="h-4 w-4" /> User Management</h3>
+          <Button size="sm" onClick={openAddUser}>
+            <UserPlus className="h-3.5 w-3.5 mr-1.5" /> Add User
+          </Button>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -1520,6 +1649,7 @@ function AdminDashboard() {
                 <th className="pb-2 font-medium">Name</th>
                 <th className="pb-2 font-medium">Email</th>
                 <th className="pb-2 font-medium">Role</th>
+                <th className="pb-2 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1527,7 +1657,17 @@ function AdminDashboard() {
                 <tr key={u.id} className="border-b last:border-0">
                   <td className="py-2.5 font-medium text-card-foreground">{u.name}</td>
                   <td className="py-2.5 text-muted-foreground">{u.email}</td>
-                  <td className="py-2.5"><Badge variant="outline" className="text-[10px]">{roleLabels[u.role]}</Badge></td>
+                  <td className="py-2.5"><Badge variant="outline" className="text-[10px]">{roleLabels[u.role as keyof typeof roleLabels] || u.role}</Badge></td>
+                  <td className="py-2.5 text-right">
+                    <div className="flex items-center gap-1 justify-end">
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEditUser(u)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => handleDeleteUser(u.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1547,6 +1687,42 @@ function AdminDashboard() {
           ))}
         </div>
       </div>
+
+      {/* Add / Edit User Dialog */}
+      <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingUser ? "Edit User" : "Add New User"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label>Full Name</Label>
+              <Input value={userForm.name} onChange={e => setUserForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Rahul Sharma" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Email</Label>
+              <Input type="email" value={userForm.email} onChange={e => setUserForm(f => ({ ...f, email: e.target.value }))} placeholder="email@example.com" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{editingUser ? "New Password (leave blank to keep current)" : "Password"}</Label>
+              <Input type="password" value={userForm.password} onChange={e => setUserForm(f => ({ ...f, password: e.target.value }))} placeholder="••••••••" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <Select value={userForm.role} onValueChange={v => setUserForm(f => ({ ...f, role: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {USER_ROLES.map(r => <SelectItem key={r} value={r}>{roleLabels[r]}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="ghost" onClick={() => setUserDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleSaveUser} disabled={saving}>{saving ? "Saving..." : editingUser ? "Save Changes" : "Create User"}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

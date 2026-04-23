@@ -108,12 +108,14 @@ export function getMockFinanceData() {
 }
 
 // Deprecated mock functions used by frontend until fully migrated
+const STABLE_EMPTY_FINANCE = { 
+  invoices: [], payments: [], expenses: [], vendors: [], 
+  vendorBills: [], budgets: [], emiSchedules: [], cashflow: [], logs: [] 
+};
+
 export function subscribeFinance(l: any) { return () => {}; }
 export function getFinance() { 
-  return { 
-    invoices: [], payments: [], expenses: [], vendors: [], 
-    ...getMockFinanceData() 
-  }; 
+  return STABLE_EMPTY_FINANCE; 
 }
 export function recomputeOverdue() {}
 export function autoSeedEmisForPartial() { return 0; }
