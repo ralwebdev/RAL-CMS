@@ -36,11 +36,17 @@ RAL-CMS is a specialized CRM system designed for educational institutions or tra
 
 ### 2.3 Redundant Logic / 'Dead' Code
 - **Mock Data:** `Frontend/src/lib/mock-data.ts` and `Frontend/src/lib/vertical-data.ts` contain extensive mock data. While useful for development, some pages still import these instead of or alongside backend data, creating a "hybrid" state that is hard to maintain.
+- **Mock Data Elimination:** A detailed strategy has been developed to transition all pages to backend-only data. `TelecallingPage.tsx` has been refactored as a pilot.
 - **Scripts:** Some utility scripts in `Backend/src/scripts/` seem to be one-off fixes that could be removed once the database is stable.
 
 ---
 
-## 3. Dependency Check
+## 3. Mock Data Elimination Strategy
+To fully get rid of mock data, follow the [Mock Migration Guide](./MOCK_MIGRATION_GUIDE.md). Key steps include extending backend APIs for missing data points and centralizing frontend state with TanStack Query.
+
+---
+
+## 4. Dependency Check
 
 ### 3.1 Current Stack
 - **Backend:** Node.js, Express, Mongoose, JWT.
@@ -53,7 +59,7 @@ RAL-CMS is a specialized CRM system designed for educational institutions or tra
 
 ---
 
-## 4. Feature Gap Analysis
+## 5. Feature Gap Analysis
 
 ### Suggested High-Impact Features
 
@@ -116,7 +122,7 @@ if (newLead) {
 
 ---
 
-## 5. Documentation & Scalability
+## 6. Documentation & Scalability
 
 ### 5.1 Scalability
 - **Architecture:** The modular route/controller/model structure is scalable.

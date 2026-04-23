@@ -13,6 +13,7 @@ An exhaustive review of the RAL-CMS repository has been performed. Key findings 
 - **Scalability:** Modular structure is good; recommended adding a Service Layer for further growth.
 
 **Read the full report here: [AUDIT_REPORT.md](./AUDIT_REPORT.md)**
+**Read the Mock Migration Guide: [MOCK_MIGRATION_GUIDE.md](./MOCK_MIGRATION_GUIDE.md)**
 
 ## Repository Structure
 
