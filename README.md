@@ -12,17 +12,15 @@ An exhaustive review of the RAL-CMS repository has been performed. Key findings 
 - **Feature Gaps:** Suggested AI Lead Scoring and WhatsApp automation.
 - **Scalability:** Modular structure is good; recommended adding a Service Layer for further growth.
 
-**Read the full report here: [AUDIT_REPORT.md](../AUDIT_REPORT.md)**
+**Read the full report here: [AUDIT_REPORT.md](./AUDIT_REPORT.md)**
+
+## Repository Structure
+
+- `Backend/`: Express server, Mongoose models, and API routes.
+- `Frontend/`: React application using Vite, Tailwind CSS, and Shadcn UI.
 
 ## Getting Started
 
-### Backend
-1. `cd Backend`
-2. `npm install`
-3. Create `.env` with `MONGO_URI` and `JWT_SECRET`.
-4. `npm start`
-
-### Frontend
-1. `cd Frontend`
-2. `npm install`
-3. `npm run dev`
+Refer to the README files in the respective directories for detailed setup instructions:
+- [Backend README](./Backend/package.json)
+- [Frontend README](./Frontend/README.md)
