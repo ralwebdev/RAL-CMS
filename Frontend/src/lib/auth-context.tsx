@@ -175,10 +175,12 @@ export const roleNavConfig: Record<UserRole, { to: string; label: string }[]> = 
   accounts_manager: [
     { to: "/", label: "Dashboard" },
     { to: "/accounts", label: "Accounts" },
+    { to: "/approvals", label: "Approvals" },
   ],
   accounts_executive: [
     { to: "/", label: "Dashboard" },
     { to: "/accounts", label: "Accounts" },
+    { to: "/approvals", label: "Approvals" },
   ],
 };
 

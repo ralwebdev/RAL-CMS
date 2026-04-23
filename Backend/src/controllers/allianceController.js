@@ -5,6 +5,7 @@ import AllianceTask from '../models/AllianceTask.js';
 import AllianceProposal from '../models/AllianceProposal.js';
 import AllianceEvent from '../models/AllianceEvent.js';
 import AllianceExpense from '../models/AllianceExpense.js';
+import FinanceExpense from '../models/FinanceExpense.js';
 import { AllianceApproval, AllianceApprovalLog } from '../models/AllianceApproval.js';
 
 // @desc    Get all alliance institutions (Scoped by RBAC)
@@ -355,15 +356,15 @@ export const getApprovals = async (req, res) => {
     const { role, _id } = req.user;
     let query = {};
 
-    if (role === 'alliance_manager') {
+    if (role === 'alliance_manager' || role === 'accounts_manager') {
       // Manager sees pending items routed to them + their own submissions
       query = {
         $or: [
-          { currentApproverRole: 'alliance_manager' },
+          { currentApproverRole: role },
           { submittedBy: _id }
         ]
       };
-    } else if (role === 'alliance_executive') {
+    } else if (role === 'alliance_executive' || role === 'accounts_executive') {
       // Executives only see what they submitted
       query = { submittedBy: _id };
     }
@@ -388,8 +389,11 @@ export const submitApproval = async (req, res) => {
     const { role, _id } = req.user;
 
     // Resolve next approver role
-    let currentApproverRole = 'admin';
-    if (role === 'alliance_executive') currentApproverRole = 'alliance_manager';
+    let currentApproverRole = req.body.currentApproverRole || 'admin';
+    if (!req.body.currentApproverRole) {
+      if (role === 'alliance_executive') currentApproverRole = 'alliance_manager';
+      if (role === 'accounts_executive') currentApproverRole = 'accounts_manager';
+    }
 
     const approval = new AllianceApproval({
       requestId, requestType, title, amount, priority, notes, meta,
@@ -454,6 +458,20 @@ export const actOnApproval = async (req, res) => {
       comment
     });
     await log.save();
+    
+    // Sync back to FinanceExpense if applicable
+    if (approval.meta && approval.meta.module === 'finance' && approval.requestType === 'Expense Bill') {
+      try {
+        const expense = await FinanceExpense.findById(approval.requestId);
+        if (expense) {
+          expense.status = toStatus;
+          if (toStatus === 'Approved') expense.approvedBy = _id;
+          await expense.save();
+        }
+      } catch (err) {
+        console.error('Failed to sync back to FinanceExpense:', err);
+      }
+    }
 
     res.json(updatedApproval);
   } catch (error) {

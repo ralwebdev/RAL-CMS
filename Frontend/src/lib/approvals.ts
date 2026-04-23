@@ -73,7 +73,8 @@ const todayIso = () => new Date().toISOString().split("T")[0];
 export function resolveNextApproverRole(submittedRole: UserRole): UserRole {
   if (submittedRole === "alliance_executive") return "alliance_manager";
   // Managers (any flavour) escalate up to admin/owner tier
-  if (submittedRole === "alliance_manager" || submittedRole === "marketing_manager" || submittedRole === "telecalling_manager") return "admin";
+  if (submittedRole === "alliance_manager" || submittedRole === "marketing_manager" || submittedRole === "telecalling_manager" || submittedRole === "accounts_manager") return "admin";
+  if (submittedRole === "accounts_executive") return "accounts_manager";
   return "admin";
 }
 
@@ -126,6 +127,7 @@ export const approvalStore = {
     amount?: number;
     priority?: ApprovalPriority;
     notes?: string;
+    targetRole?: UserRole; // Explicit override
     meta?: Record<string, unknown>;
   }): string {
     const all = approvalStore.list();
@@ -134,7 +136,7 @@ export const approvalStore = {
     if (existing) return existing.id;
 
     const id = `ap${Date.now()}`;
-    const approverRole = resolveNextApproverRole(input.submittedRole);
+    const approverRole = input.targetRole || resolveNextApproverRole(input.submittedRole);
     const req: ApprovalRequest = {
       id,
       requestId: input.requestId,

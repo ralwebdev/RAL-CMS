@@ -28,6 +28,7 @@ import {
   allianceStore, downloadCSV, allianceUsers, updateExpenseApi,
   fetchApprovals, fetchApprovalLogs, actOnApprovalApi
 } from "@/lib/alliance-data";
+import { updateExpenseApi as updateFinanceExpenseApi } from "@/lib/finance-store";
 import { toast } from "sonner";
 import { confetti } from "./AllianceShell";
 import { cn } from "@/lib/utils";
@@ -55,7 +56,7 @@ function StatusChip({ value }: { value: ApprovalStatus }) {
   );
 }
 
-const REQUEST_TYPES: ApprovalRequestType[] = ["Expense Bill", "Task Completion", "Task Extension", "Travel Reimbursement", "Visit Claim", "Custom Request", "Proposal Approval"];
+const REQUEST_TYPES: ApprovalRequestType[] = ["Expense Bill", "Task Completion", "Task Extension", "Travel Reimbursement", "Visit Claim", "Custom Request", "Proposal Approval", "Invoice Dispatch"];
 
 export function ApprovalCenter() {
   const { currentUser } = useAuth();
@@ -74,8 +75,8 @@ export function ApprovalCenter() {
 
   const role = currentUser?.role ?? "alliance_executive";
   const userId = currentUser?.id ?? "";
-  const isExec = role === "alliance_executive";
-  const isMgr = role === "alliance_manager";
+  const isExec = role === "alliance_executive" || role === "accounts_executive";
+  const isMgr = role === "alliance_manager" || role === "accounts_manager";
   const isAdmin = role === "admin" || role === "owner";
 
   const getStrId = (val: any): string => {
@@ -91,7 +92,7 @@ export function ApprovalCenter() {
 
   const all = allApprovals;
   const pending = all.filter((a) => {
-    if (isMgr) return a.currentApproverRole === "alliance_manager" && (a.status === "Pending" || a.status === "Resubmitted");
+    if (isMgr) return a.currentApproverRole === role && (a.status === "Pending" || a.status === "Resubmitted");
     if (isAdmin) return a.status === "Pending" || a.status === "Resubmitted";
     return getStrId(a.submittedBy) === userId && (a.status === "Pending" || a.status === "Resubmitted" || a.status === "Hold");
   });
@@ -136,7 +137,11 @@ export function ApprovalCenter() {
       const next = status === "Approved" ? "Approved" : status === "Rejected" ? "Rejected" : null;
       if (next) {
         try {
-          await updateExpenseApi(req.requestId, { status: next as any });
+          if ((req.meta as any)?.module === "finance") {
+            await updateFinanceExpenseApi({ id: req.requestId, status: next });
+          } else {
+            await updateExpenseApi(req.requestId, { status: next as any });
+          }
         } catch (error) {
           console.error("Failed to sync back expense status:", error);
         }
@@ -228,7 +233,7 @@ export function ApprovalCenter() {
 
   // ── Action menu per row ──
   const rowActions = (req: ApprovalRequest) => {
-    const canAct = (isMgr && req.currentApproverRole === "alliance_manager" && (req.status === "Pending" || req.status === "Resubmitted" || req.status === "Hold"))
+    const canAct = (isMgr && req.currentApproverRole === role && (req.status === "Pending" || req.status === "Resubmitted" || req.status === "Hold"))
       || (isAdmin && (req.status === "Pending" || req.status === "Resubmitted" || req.status === "Hold"));
     const showOverride = isAdmin && (req.status === "Approved" || req.status === "Rejected" || req.status === "Hold");
     const canResubmit = isExec && req.submittedBy === userId && req.status === "Rejected";

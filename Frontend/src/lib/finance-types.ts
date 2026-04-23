@@ -80,6 +80,7 @@ export interface Expense {
   gst: number;
   total: number;
   spendDate: string;
+  title: string;
   description: string;
   status: ExpenseStatus;
   paymentMode?: PaymentMode;

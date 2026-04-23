@@ -11,6 +11,7 @@ import {
   Invoice, Payment, Expense, Vendor, VendorBill, Budget, EmiSchedule,
   RevenueStream, ExpenseCategory, GstType, PaymentMode, ExpenseStatus,
 } from "@/lib/finance-types";
+import { ApprovalRequest } from "@/lib/approvals";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -35,7 +36,8 @@ import { FinanceTable, Column } from "./FinanceTable";
 import { FinanceDrawer } from "./FinanceDrawer";
 import { buildVouchers, vouchersToCsv, vouchersToJson, downloadFile, type TxnType, type DateRange } from "@/lib/tally-export";
 import { submitExpenseForApproval, approvalForExpense, syncApprovalToExpense, tierForAmount } from "@/lib/expense-approval-bridge";
-import { approvalStore } from "@/lib/approvals";
+import { approvalStore, canApprove as canActOnApproval } from "@/lib/approvals";
+import { fetchApprovals, actOnApprovalApi } from "@/lib/alliance-data";
 import type { UserRole } from "@/lib/types";
 import { InvoiceDispatchDialog } from "./InvoiceDispatchDialog";
 import {
@@ -58,6 +60,7 @@ function useFinance() {
   const expensesQuery = useQuery({ queryKey: ['expenses'], queryFn: fetchExpenses });
   const paymentsQuery = useQuery({ queryKey: ['payments'], queryFn: fetchPayments });
   const vendorsQuery = useQuery({ queryKey: ['vendors'], queryFn: fetchVendors });
+  const approvalsQuery = useQuery({ queryKey: ['approvals'], queryFn: fetchApprovals });
 
   const mockData = useMemo(() => getMockFinanceData(), []);
 
@@ -68,8 +71,9 @@ function useFinance() {
     expenses: expensesQuery.data || [],
     payments: paymentsQuery.data || [],
     vendors: vendorsQuery.data || [],
+    approvals: (approvalsQuery.data || []) as ApprovalRequest[],
     ...mockData,
-    isLoading
+    isLoading: isLoading || approvalsQuery.isLoading
   };
 }
 
@@ -151,7 +155,7 @@ export function AccountsModule() {
         <TabsContent value="billing" className="mt-4"><BillingTab role={role} /></TabsContent>
         <TabsContent value="collections" className="mt-4"><CollectionsTab role={role} /></TabsContent>
         <TabsContent value="emi" className="mt-4"><EmiTab /></TabsContent>
-        <TabsContent value="expenses" className="mt-4"><ExpensesTab role={role} /></TabsContent>
+        <TabsContent value="expenses" className="mt-4"><ExpensesTab role={role} approvals={fin.approvals} /></TabsContent>
         <TabsContent value="vendors" className="mt-4"><VendorsTab role={role} /></TabsContent>
         <TabsContent value="budgets" className="mt-4"><BudgetsTab /></TabsContent>
         <TabsContent value="profit" className="mt-4"><ProfitTab /></TabsContent>
@@ -753,42 +757,37 @@ function EmiTab() {
 }
 
 /* ───────── Expenses ───────── */
-function ExpensesTab({ role }: { role: RoleScope }) {
+function ExpensesTab({ role, approvals }: { role: RoleScope; approvals: ApprovalRequest[] }) {
   const fin = useFinance();
   const { currentUser } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
 
-  const canApprove = role === "owner" || role === "manager";
-
   const queryClient = useQueryClient();
-  const updateStatusMutation = useMutation({
-    mutationFn: updateExpenseApi,
+  const actMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => actOnApprovalApi(id, data),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['approvals'] });
       queryClient.invalidateQueries({ queryKey: ['expenses'] });
-      toast({ title: "Expense status updated" });
+      toast({ title: "Action recorded" });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to update status", description: error.response?.data?.message || error.message, variant: "destructive" });
+      toast({ title: "Failed to record action", description: error.response?.data?.message || error.message, variant: "destructive" });
     }
   });
 
   const actOnApproval = (exp: Expense, action: "Approve" | "Reject") => {
-    const req = approvalForExpense(exp.id);
-    const actorRole: UserRole = (currentUser?.role as UserRole) || "accounts_manager";
+    const req = approvals.find(a => a.requestType === "Expense Bill" && a.requestId === exp.id);
     if (req) {
-      const updated = approvalStore.act(req.id, {
-        action,
-        actorId: currentUser?.id || "u0",
-        actorRole,
-        comment: action === "Reject" ? "Rejected via Expenses tab" : undefined,
+      actMutation.mutate({
+        id: req.id,
+        data: {
+          action,
+          actorId: currentUser?.id || "u0",
+          actorRole: currentUser?.role,
+          comment: action === "Reject" ? "Rejected via Expenses tab" : undefined,
+        }
       });
-      if (!updated) { toast({ title: "Approval level not configured.", variant: "destructive" }); return; }
-      syncApprovalToExpense(updated, currentUser?.id || "u0");
-      // Also update the backend expense status
-      updateStatusMutation.mutate({ id: exp.id, status: action === "Approve" ? "Approved" : "Rejected" });
-    } else {
-      updateStatusMutation.mutate({ id: exp.id, status: action === "Approve" ? "Approved" : "Rejected" });
     }
   };
 
@@ -804,12 +803,17 @@ function ExpensesTab({ role }: { role: RoleScope }) {
     }, exportValue: r => { try { return tierForAmount(r.total).tier; } catch { return ""; } } },
     { key: "status", header: "Status", render: r => <StatusPill status={r.status} tone={statusTone(r.status)} />, exportValue: r => r.status },
     {
-      key: "actions", header: "", render: r => canApprove && r.status === "Pending"
-        ? <div className="flex gap-1">
-            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); actOnApproval(r, "Approve"); }}>Approve</Button>
-            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); actOnApproval(r, "Reject"); }}>Reject</Button>
-          </div>
-        : null
+      key: "actions", header: "", render: r => {
+        const req = approvals.find(a => a.requestType === "Expense Bill" && a.requestId === r.id);
+        const ableToAct = req ? canActOnApproval(currentUser?.role as UserRole, req) : (role === "owner" || role === "manager");
+        
+        return ableToAct && r.status === "Pending"
+          ? <div className="flex gap-1">
+              <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); actOnApproval(r, "Approve"); }}>Approve</Button>
+              <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); actOnApproval(r, "Reject"); }}>Reject</Button>
+            </div>
+          : null;
+      }
     },
   ];
 
@@ -836,6 +840,7 @@ function ExpenseFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     vendorId: "",
     amount: 0, gst: 0,
     spendDate: new Date().toISOString().slice(0, 10),
+    title: "",
     description: "",
     paymentMode: "Bank" as PaymentMode,
   });
@@ -861,7 +866,7 @@ function ExpenseFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   });
 
   const submit = () => {
-    if (f.amount <= 0 || !f.description) { toast({ title: "Fill amount + description", variant: "destructive" }); return; }
+    if (f.amount <= 0 || !f.description || !f.title) { toast({ title: "Fill title, amount + description", variant: "destructive" }); return; }
     const vendor = fin.vendors.find(v => v.id === f.vendorId);
     createMutation.mutate({
       category: f.category,
@@ -869,6 +874,7 @@ function ExpenseFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
       amount: f.amount, gst: f.gst,
       total: f.amount + f.gst,
       spendDate: new Date(f.spendDate).toISOString(),
+      title: f.title,
       description: f.description,
       status: "Pending",
       paymentMode: f.paymentMode,
@@ -901,6 +907,7 @@ function ExpenseFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
           <div><Label>GST (₹)</Label><Input type="number" value={f.gst || ""} onChange={e => setF({ ...f, gst: +e.target.value })} /></div>
         </div>
         <div><Label>Date</Label><Input type="date" value={f.spendDate} onChange={e => setF({ ...f, spendDate: e.target.value })} /></div>
+        <div><Label>Expense Title</Label><Input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder="e.g. Office Stationery, Server Hosting" /></div>
         <div><Label>Payment Mode</Label>
           <Select value={f.paymentMode} onValueChange={(v: any) => setF({ ...f, paymentMode: v })}>
             <SelectTrigger><SelectValue /></SelectTrigger>

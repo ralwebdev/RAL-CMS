@@ -14,7 +14,7 @@ const router = express.Router();
 
 // All routes are protected and restricted to specific roles
 router.use(protect);
-router.use(authorize('alliance_manager', 'alliance_executive', 'admin', 'owner'));
+router.use(authorize('alliance_manager', 'alliance_executive', 'accounts_manager', 'accounts_executive', 'admin', 'owner'));
 
 router.route('/institutions')
   .get(getInstitutions)

@@ -4,6 +4,7 @@
  * - Syncs approval action back to the expense status.
  */
 import { approvalStore, type ApprovalRequest } from "./approvals";
+import { submitApprovalApi } from "./alliance-data";
 import { getFinance, setExpenseStatus } from "./finance-store";
 import type { Expense } from "./finance-types";
 import type { UserRole } from "./types";
@@ -31,19 +32,20 @@ export function tierForAmount(amount: number): ApprovalTierRule {
   return rule;
 }
 
-/** Submit an expense into the approval engine. Returns approvalId. */
-export function submitExpenseForApproval(exp: Expense, submittedBy: string, submittedRole: UserRole): string {
+/** Submit an expense into the approval engine. Returns promise. */
+export async function submitExpenseForApproval(exp: Expense, submittedBy: string, submittedRole: UserRole): Promise<any> {
   const rule = tierForAmount(exp.total);
-  return approvalStore.submit({
+  return submitApprovalApi({
     requestId: exp.id,
     requestType: "Expense Bill",
-    title: `${exp.category} ₹${exp.total.toLocaleString("en-IN")} — ${exp.vendorName || exp.description.slice(0, 30)}`,
+    title: `${exp.title} (₹${exp.total.toLocaleString("en-IN")}) — ${exp.vendorName || exp.description.slice(0, 30)}`,
     submittedBy,
     submittedRole,
     amount: exp.total,
     priority: exp.total > 25000 ? "High" : exp.total > 5000 ? "Medium" : "Low",
     notes: exp.description,
-    meta: { tier: rule.tier, approverRole: rule.approverRole, expenseNo: exp.expenseNo },
+    currentApproverRole: rule.approverRole,
+    meta: { module: "finance", tier: rule.tier, approverRole: rule.approverRole, expenseNo: exp.expenseNo },
   });
 }
 

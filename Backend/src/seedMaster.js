@@ -122,10 +122,11 @@ const seedAll = async () => {
         leadOwner: getRandom(adminIds)
       };
       
-      // Ensure John Doe is assigned to Shreya
+      // Ensure John Doe is assigned to Shreya initially, but set to Counseling for Manjari test
       if (lead.name === "John Doe") {
         data.assignedTelecallerId = shreyaUser._id;
         data.assignedCounselor = manjariUser._id;
+        data.status = "Counseling"; // Start in Counseling for Module 4 test
         data.leadOwner = ownerUser._id;
       }
       
@@ -134,7 +135,22 @@ const seedAll = async () => {
     const createdLeads = await Lead.insertMany(leadsToSeed);
     console.log(`${createdLeads.length} Leads seeded.`);
 
-    // 5. Seed interactions for some leads
+    // 5. Seed Admission for John Doe (for Module 5 testing)
+    const johnDoe = createdLeads.find(l => l.name === "John Doe");
+    const admission = await Admission.create({
+      leadId: johnDoe._id,
+      studentName: johnDoe.name,
+      phone: johnDoe.phone,
+      email: johnDoe.email,
+      courseSelected: "Full Stack Development",
+      totalFee: 60000,
+      admissionDate: new Date().toISOString().split('T')[0],
+      status: 'Joined',
+      counselorId: johnDoe.assignedCounselor
+    });
+    console.log('Admission for John Doe seeded.');
+
+    // 6. Seed interactions for some leads
     const sampleLead = createdLeads[0];
     const sampleTelecaller = getRandom(telecallerIds);
 
