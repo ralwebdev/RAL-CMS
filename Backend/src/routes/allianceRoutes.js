@@ -6,7 +6,8 @@ import {
   getTasks, createTask, updateTask,
   getEvents, createEvent,
   getExpenses, createExpense, updateExpense,
-  getApprovals, submitApproval, actOnApproval, getApprovalLogs
+  getApprovals, submitApproval, actOnApproval, getApprovalLogs,
+  getContacts, createContact, deleteContact, getAllianceUsers
 } from '../controllers/allianceController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -19,6 +20,14 @@ router.use(authorize('alliance_manager', 'alliance_executive', 'accounts_manager
 router.route('/institutions')
   .get(getInstitutions)
   .post(createInstitution);
+
+router.get('/users', getAllianceUsers);
+
+router.route('/contacts')
+  .get(getContacts)
+  .post(createContact);
+
+router.delete('/contacts/:id', deleteContact);
 
 router.route('/institutions/:id')
   .put(updateInstitution)

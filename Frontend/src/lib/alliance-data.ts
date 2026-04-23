@@ -9,14 +9,13 @@ import type {
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-// ── DEMO USERS (separate from main CRM users until Phase 5) ──
-export const allianceUsers: AllianceUser[] = [
-  { id: "69e74aa7130b33ab72372885", name: "Rohit Banerjee", email: "rohit@redapple.com", role: "alliance_manager", status: "active", createdAt: new Date().toISOString() },
-  { id: "69e74aa7130b33ab72372888", name: "Sneha Roy", email: "sneha@redapple.com", role: "alliance_executive", status: "active", createdAt: new Date().toISOString() },
-  // These two might not be in DB yet, using generated ObjectIds for Karan and Pooja to satisfy schema
-  { id: "69e74aa7130b33ab72372889", name: "Karan Mehta", email: "karan@redapple.com", role: "alliance_executive", status: "active", createdAt: new Date().toISOString() },
-  { id: "69e74aa7130b33ab7237288a", name: "Pooja Nair", email: "pooja@redapple.com", role: "alliance_executive", status: "active", createdAt: new Date().toISOString() },
-];
+// ── DEMO USERS (Deprecated - fetching from backend now) ──
+export const allianceUsers: AllianceUser[] = [];
+
+export const fetchAllianceUsersApi = async (): Promise<AllianceUser[]> => {
+  const { data } = await axios.get(`${API_URL}/api/alliances/users`, getHeaders());
+  return data;
+};
 
 const getHeaders = () => {
   const token = localStorage.getItem("crm_token");
@@ -44,8 +43,11 @@ export const fetchProposals = async (): Promise<AllianceProposal[]> => {
   return data;
 };
 
-// Dummy fetchers for tabs not yet fully backend-ready (maintaining UI)
-export const fetchContacts = async (): Promise<AllianceContact[]> => [];
+// Fetchers
+export const fetchContacts = async (): Promise<AllianceContact[]> => {
+  const { data } = await axios.get(`${API_URL}/api/alliances/contacts`, getHeaders());
+  return data;
+};
 export const fetchTasks = async (): Promise<AllianceTask[]> => {
   const { data } = await axios.get(`${API_URL}/api/alliances/tasks`, getHeaders());
   return data;
@@ -112,6 +114,15 @@ export const createEventApi = async (input: Partial<AllianceEvent>): Promise<All
 export const createExpenseApi = async (input: Partial<AllianceExpense>): Promise<AllianceExpense> => {
   const { data } = await axios.post(`${API_URL}/api/alliances/expenses`, input, getHeaders());
   return data;
+};
+
+export const createContactApi = async (input: Partial<AllianceContact>): Promise<AllianceContact> => {
+  const { data } = await axios.post(`${API_URL}/api/alliances/contacts`, input, getHeaders());
+  return data;
+};
+
+export const deleteContactApi = async (id: string): Promise<void> => {
+  await axios.delete(`${API_URL}/api/alliances/contacts/${id}`, getHeaders());
 };
 
 export const updateExpenseApi = async (id: string, input: Partial<AllianceExpense>): Promise<AllianceExpense> => {

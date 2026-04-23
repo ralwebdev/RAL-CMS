@@ -6,6 +6,7 @@ import AllianceProposal from '../models/AllianceProposal.js';
 import AllianceEvent from '../models/AllianceEvent.js';
 import AllianceExpense from '../models/AllianceExpense.js';
 import FinanceExpense from '../models/FinanceExpense.js';
+import User from '../models/User.js';
 import { AllianceApproval, AllianceApprovalLog } from '../models/AllianceApproval.js';
 
 // @desc    Get all alliance institutions (Scoped by RBAC)
@@ -490,6 +491,75 @@ export const getApprovalLogs = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(50);
     res.json(logs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get alliance contacts
+// @route   GET /api/alliances/contacts
+// @access  Private
+export const getContacts = async (req, res) => {
+  try {
+    const contacts = await AllianceContact.find({})
+      .populate('institutionId', 'name')
+      .sort({ name: 1 });
+    res.json(contacts);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Create an alliance contact
+// @route   POST /api/alliances/contacts
+// @access  Private
+export const createContact = async (req, res) => {
+  try {
+    const contact = new AllianceContact(req.body);
+    const createdContact = await contact.save();
+    res.status(201).json(createdContact);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Delete an alliance contact
+// @route   DELETE /api/alliances/contacts/:id
+// @access  Private
+export const deleteContact = async (req, res) => {
+  try {
+    const contact = await AllianceContact.findById(req.params.id);
+    if (contact) {
+      await contact.deleteOne();
+      res.json({ message: 'Contact removed' });
+    } else {
+      res.status(404).json({ message: 'Contact not found' });
+    }
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Get all alliance users for assignment
+// @route   GET /api/alliances/users
+// @access  Private
+export const getAllianceUsers = async (req, res) => {
+  try {
+    const users = await User.find({
+      role: { $in: ['alliance_manager', 'alliance_executive'] }
+    }).select('name email role status createdAt');
+    
+    // Map to frontend interface if needed, though they already match mostly
+    const mapped = users.map(u => ({
+      id: u._id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      status: u.status || 'active',
+      createdAt: u.createdAt
+    }));
+    
+    res.json(mapped);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

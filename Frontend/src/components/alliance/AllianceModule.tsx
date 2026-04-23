@@ -12,7 +12,8 @@ import {
   fetchInstitutions, fetchVisits, fetchProposals,
   createInstitutionApi, updateInstitutionApi, createVisitApi, createProposalApi, updateProposalApi,
   createTaskApi, updateTaskApi, createEventApi, createExpenseApi, updateExpenseApi,
-  fetchContacts, fetchTasks, fetchEvents, fetchExpenses, submitApprovalApi
+  fetchContacts, fetchTasks, fetchEvents, fetchExpenses, submitApprovalApi,
+  fetchAllianceUsersApi, createContactApi
 } from "@/lib/alliance-data";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -58,16 +59,16 @@ function getStrId(val: any): string {
 
 // ── Field configs (closed-ended) ──
 const executiveOptions = allianceUsers.filter(u => u.role === "alliance_executive").map((u) => u.name);
-const userIdByLabel = (label: string) => allianceUsers.find((u) => u.name === label)?.id ?? "";
-const userLabelById = (id: string) => allianceUsers.find((u) => u.id === id)?.name ?? id;
+const userIdByLabel = (label: string, users: any[]) => users.find((u) => u.name === label)?.id ?? "";
+const userLabelById = (id: string, users: any[]) => users.find((u) => u.id === id)?.name ?? id;
 
 const institutionFields: FieldConfig[] = [
   { key: "name", label: "Institution Name", type: "text", required: true, placeholder: "e.g. Delhi Public School" },
   { key: "type", label: "Type", type: "select", options: INSTITUTION_TYPES, required: true },
   { key: "boardUniversity", label: "Board / University", type: "select", options: BOARD_UNIVERSITIES, required: true },
   { key: "city", label: "City", type: "text", required: true },
-  { key: "district", label: "District", type: "text" },
-  { key: "address", label: "Address", type: "text", colSpan: 2 },
+  { key: "district", label: "District", type: "text", required: true },
+  { key: "address", label: "Address", type: "text", required: true, colSpan: 2 },
   { key: "studentStrength", label: "Student Strength", type: "number", required: true },
   { key: "decisionMaker", label: "Decision Maker", type: "text" },
   { key: "phone", label: "Phone", type: "phone", required: true },
@@ -101,6 +102,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
   const [showProposalForm, setShowProposalForm] = useState(false);
   const [showEventForm, setShowEventForm] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [showContactForm, setShowContactForm] = useState(false);
   const [drillInstitution, setDrillInstitution] = useState<Institution | null>(null);
 
   // Auto-open create form based on URL action param
@@ -120,14 +122,15 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
   const instQuery = useQuery({ queryKey: ['institutions'], queryFn: fetchInstitutions });
   const visitsQuery = useQuery({ queryKey: ['visits'], queryFn: fetchVisits });
   const proposalsQuery = useQuery({ queryKey: ['proposals'], queryFn: fetchProposals });
-  
-  // Dummy queries for tabs not yet backend-ready
   const contactsQuery = useQuery({ queryKey: ['contacts'], queryFn: fetchContacts });
   const tasksQuery = useQuery({ queryKey: ['tasks'], queryFn: fetchTasks });
   const eventsQuery = useQuery({ queryKey: ['events'], queryFn: fetchEvents });
   const expensesQuery = useQuery({ queryKey: ['expenses'], queryFn: fetchExpenses });
+  const usersQuery = useQuery({ queryKey: ['alliance-users'], queryFn: fetchAllianceUsersApi });
 
-  const isLoading = instQuery.isLoading || visitsQuery.isLoading || proposalsQuery.isLoading;
+  const isLoading = instQuery.isLoading || visitsQuery.isLoading || proposalsQuery.isLoading || usersQuery.isLoading;
+  const users = useMemo(() => usersQuery.data || [], [usersQuery.data]);
+  const execOptions = useMemo(() => users.filter(u => u.role === "alliance_executive").map(u => u.name), [users]);
 
   const data = useMemo(() => {
     const allInst = instQuery.data || [];
@@ -293,7 +296,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
 
   const saveInstitution = (vals: Record<string, unknown>) => {
     const studentStrength = Number(vals.studentStrength) || 0;
-    const assignedToId = userIdByLabel(String(vals.assignedTo));
+    const assignedToId = userIdByLabel(String(vals.assignedTo), users);
     const payload = {
       ...vals,
       studentStrength,
@@ -313,7 +316,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
     visitMutation.mutate({
       ...vals,
       institutionId: inst.id,
-      executiveId: scope === "executive" && executiveId ? executiveId : userIdByLabel(String(vals.executive)) || currentUser?.id,
+      executiveId: scope === "executive" && executiveId ? executiveId : userIdByLabel(String(vals.executive), users) || currentUser?.id,
     } as any);
   };
 
@@ -340,7 +343,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
       data: {
         ...vals,
         institutionId: inst.id,
-        assignedTo: userIdByLabel(String(vals.assignedTo)) || currentUser?.id
+        assignedTo: userIdByLabel(String(vals.assignedTo), users) || currentUser?.id
       }
     });
   };
@@ -368,6 +371,25 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
       ...vals,
       institutionId: inst.id,
       amount: Number(vals.amount) || 0,
+      executiveId: scope === "executive" && executiveId ? executiveId : userIdByLabel(String(vals.executive), users) || currentUser?.id,
+    } as any);
+  };
+
+  const contactMutation = useMutation({
+    mutationFn: createContactApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      toast.success("Contact saved.");
+      setShowContactForm(false);
+    }
+  });
+
+  const saveContact = (vals: Record<string, unknown>) => {
+    const inst = data.institutions.find((i) => i.name === vals.institution);
+    if (!inst) { toast.error("Select an institution."); return; }
+    contactMutation.mutate({
+      ...vals,
+      institutionId: inst.id,
     } as any);
   };
 
@@ -388,9 +410,12 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
     ) },
     { key: "priority", header: "Priority", render: (r) => <StatusPill value={r.priority} />, hideOnMobile: true },
     { key: "students", header: "Students", render: (r) => <span className="font-medium">{r.studentStrength.toLocaleString()}</span>, hideOnMobile: true },
-    { key: "exec", header: "Executive", render: (r) => <span className="text-xs">{userLabelById(getStrId(r.assignedTo))}</span>, hideOnMobile: true },
+    { key: "exec", header: "Executive", render: (r) => <span className="text-xs">{userLabelById(getStrId(r.assignedTo), users)}</span>, hideOnMobile: true },
     { key: "actions", header: "", render: (r) => (
-      <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEditInstitution(r); setShowInstForm(true); }}>Edit</Button>
+      <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+        <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => setDrillInstitution(r)}>View</Button>
+        <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => { setEditInstitution(r); setShowInstForm(true); }}>Edit</Button>
+      </div>
     ) },
   ];
 
@@ -435,7 +460,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
   const expenseColumns: ColumnDef<AllianceExpense>[] = [
     { key: "date", header: "Date", render: (r) => <span className="text-xs whitespace-nowrap">{r.expenseDate}</span> },
     { key: "type", header: "Type", render: (r) => <Badge variant="outline" className="text-[9px]">{r.expenseType}</Badge> },
-    { key: "exec", header: "Executive", render: (r) => <span className="text-xs">{userLabelById(getStrId(r.executiveId))}</span>, hideOnMobile: true },
+    { key: "exec", header: "Executive", render: (r) => <span className="text-xs">{userLabelById(getStrId(r.executiveId), users)}</span>, hideOnMobile: true },
     { key: "amount", header: "Amount", render: (r) => <span className="font-semibold">₹{r.amount.toLocaleString()}</span> },
     { key: "status", header: "Status", render: (r) => <StatusPill value={r.status} /> },
   ];
@@ -456,15 +481,22 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
     { key: "interestLevel", label: "Interest Level", type: "select", options: VISIT_INTEREST_LEVELS, required: true },
     { key: "status", label: "Status", type: "select", options: VISIT_STATUSES, required: true },
     { key: "nextFollowup", label: "Next Follow-up", type: "date" },
-    ...(scope === "manager" ? [{ key: "executive", label: "Executive", type: "select" as const, options: executiveOptions, required: true }] : []),
+    ...(scope === "manager" ? [{ key: "executive", label: "Executive", type: "select" as const, options: execOptions, required: true }] : []),
     { key: "summary", label: "Summary", type: "textarea", required: true, colSpan: 2 },
+  ];
+  const contactFields: FieldConfig[] = [
+    { key: "institution", label: "Institution", type: "select", options: data.institutions.map((i) => i.name), required: true },
+    { key: "name", label: "Name", type: "text", required: true },
+    { key: "designation", label: "Designation", type: "text", required: true },
+    { key: "phone", label: "Phone", type: "phone", required: true },
+    { key: "email", label: "Email", type: "email" },
   ];
   const taskFields: FieldConfig[] = [
     { key: "title", label: "Task Title", type: "text", required: true, colSpan: 2 },
     { key: "institution", label: "Institution", type: "select", options: data.institutions.map((i) => i.name) },
     { key: "dueDate", label: "Due Date", type: "date", required: true },
     { key: "priority", label: "Priority", type: "select", options: TASK_PRIORITIES, required: true },
-    ...(scope === "manager" ? [{ key: "assignee", label: "Assign To", type: "select" as const, options: executiveOptions, required: true }] : []),
+    ...(scope === "manager" ? [{ key: "assignedTo", label: "Assign To", type: "select" as const, options: execOptions, required: true }] : []),
   ];
   const proposalFields: FieldConfig[] = [
     { key: "institution", label: "Institution", type: "select", options: data.institutions.map((i) => i.name), required: true },
@@ -488,7 +520,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
     { key: "amount", label: "Amount (₹)", type: "number", required: true },
     { key: "expenseDate", label: "Date", type: "date", required: true },
     { key: "institution", label: "Institution", type: "select", options: data.institutions.map((i) => i.name) },
-    ...(scope === "manager" ? [{ key: "executive", label: "Executive", type: "select" as const, options: executiveOptions, required: true }] : []),
+    ...(scope === "manager" ? [{ key: "executive", label: "Executive", type: "select" as const, options: execOptions, required: true }] : []),
     { key: "notes", label: "Notes", type: "textarea", colSpan: 2 },
   ];
 
@@ -509,17 +541,17 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
   // ── Reports / Exports ──
   const exportInstitutions = () => downloadCSV("alliance_institutions.csv", data.institutions.map((i) => ({
     InstitutionID: i.institutionId, Name: i.name, Type: i.type, Board: i.boardUniversity, City: i.city, District: i.district,
-    StudentStrength: i.studentStrength, Stage: i.pipelineStage, Priority: i.priority, Executive: userLabelById(i.assignedTo),
+    StudentStrength: i.studentStrength, Stage: i.pipelineStage, Priority: i.priority, Executive: userLabelById(i.assignedTo, users),
   })));
   const exportVisits = () => downloadCSV("alliance_visits.csv", data.visits.map((v) => ({
-    Date: v.visitDate, Institution: data.institutions.find((i) => i.id === v.institutionId)?.name ?? "", Executive: userLabelById(v.executiveId),
+    Date: v.visitDate, Institution: data.institutions.find((i) => i.id === v.institutionId)?.name ?? "", Executive: userLabelById(v.executiveId, users),
     MetWith: v.meetingPerson, Interest: v.interestLevel, Status: v.status, NextFollowup: v.nextFollowup, Summary: v.summary,
   })));
   const exportProposals = () => downloadCSV("alliance_proposals.csv", data.proposals.map((p) => ({
     Institution: data.institutions.find((i) => i.id === p.institutionId)?.name ?? "", Type: p.proposalType, Amount: p.amount, Status: p.status, SentDate: p.sentDate,
   })));
   const exportExpenses = () => downloadCSV("alliance_expenses.csv", data.expenses.map((e) => ({
-    Date: e.expenseDate, Executive: userLabelById(e.executiveId), Type: e.expenseType, Amount: e.amount, Status: e.status,
+    Date: e.expenseDate, Executive: userLabelById(e.executiveId, users), Type: e.expenseType, Amount: e.amount, Status: e.status,
     Institution: data.institutions.find((i) => i.id === e.institutionId)?.name ?? "",
   })));
 
@@ -612,13 +644,19 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
             onRowClick={(r) => setDrillInstitution(r)}
             searchPlaceholder="Search institutions, cities, boards…"
             emptyMessage={stageFilter !== "all" || districtFilter !== "all" ? "No institutions match the current filters." : "No institutions yet. Add your first high-potential account."}
-            toolbar={scope === "manager" ? <Button size="sm" onClick={() => { setEditInstitution(null); setShowInstForm(true); }}><Plus className="mr-1 h-4 w-4" /> Add Institution</Button> : undefined}
+            toolbar={<Button size="sm" onClick={() => { setEditInstitution(null); setShowInstForm(true); }}><Plus className="mr-1 h-4 w-4" /> Add Institution</Button>}
           />
         </TabsContent>
 
         {/* ── Contacts ── */}
         <TabsContent value="contacts" className="mt-4">
-          <DataTable data={data.contacts} columns={contactColumns} searchable={(r) => `${r.name} ${r.designation} ${r.email}`} searchPlaceholder="Search contacts…" />
+          <DataTable 
+            data={data.contacts} 
+            columns={contactColumns} 
+            searchable={(r) => `${r.name} ${r.designation} ${r.email}`} 
+            searchPlaceholder="Search contacts…" 
+            toolbar={<Button size="sm" onClick={() => setShowContactForm(true)}><Plus className="mr-1 h-4 w-4" /> Add Contact</Button>}
+          />
         </TabsContent>
 
         {/* ── Visits ── */}
@@ -747,8 +785,8 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
             <DialogDescription>Fill in the details to {editInstitution ? "update" : "register"} a partner institution.</DialogDescription>
           </DialogHeader>
           <FormEngine
-            fields={institutionFields}
-            initial={editInstitution ? { ...editInstitution, assignedTo: userLabelById(editInstitution.assignedTo) } : { pipelineStage: "Identified", type: "School", boardUniversity: "CBSE" }}
+            fields={institutionFields.map(f => f.key === "assignedTo" ? { ...f, options: execOptions } : f)}
+            initial={editInstitution ? { ...editInstitution, assignedTo: userLabelById(editInstitution.assignedTo, users) } : { pipelineStage: "Identified", type: "School", boardUniversity: "CBSE" }}
             onSubmit={saveInstitution}
             onCancel={() => { setShowInstForm(false); setEditInstitution(null); }}
             submitLabel={editInstitution ? "Update" : "Save"}
@@ -823,7 +861,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
                 <div><span className="text-muted-foreground">Students:</span> <span className="font-semibold">{drillInstitution.studentStrength.toLocaleString()}</span></div>
                 <div><span className="text-muted-foreground">Priority:</span> <StatusPill value={drillInstitution.priority} /></div>
                 <div><span className="text-muted-foreground">Stage:</span> <StatusPill value={drillInstitution.pipelineStage} /></div>
-                <div><span className="text-muted-foreground">Executive:</span> <span className="font-medium">{userLabelById(drillInstitution.assignedTo)}</span></div>
+                <div><span className="text-muted-foreground">Executive:</span> <span className="font-medium">{userLabelById(drillInstitution.assignedTo, users)}</span></div>
                 <div className="col-span-2"><span className="text-muted-foreground">Decision Maker:</span> <span className="font-medium">{drillInstitution.decisionMaker}</span></div>
                 <div className="col-span-2"><span className="text-muted-foreground">Phone:</span> {drillInstitution.phone} · <span className="text-muted-foreground">Email:</span> {drillInstitution.email}</div>
                 <div className="col-span-full"><span className="text-muted-foreground">Address:</span> {drillInstitution.address}</div>
@@ -853,6 +891,16 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showContactForm} onOpenChange={setShowContactForm}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add Contact</DialogTitle>
+            <DialogDescription>Add a new point of contact for an institution.</DialogDescription>
+          </DialogHeader>
+          <FormEngine fields={contactFields} onSubmit={saveContact} onCancel={() => setShowContactForm(false)} />
         </DialogContent>
       </Dialog>
     </div>
