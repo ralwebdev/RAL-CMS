@@ -4,7 +4,7 @@
  * can be filtered by transaction type and date range.
  */
 import type { Invoice, Payment, Expense, VendorBill } from "./finance-types";
-import { getFinance } from "./finance-store";
+import { getMockFinanceData } from "./finance-store";
 
 export type TxnType =
   | "sales_invoices"
@@ -114,12 +114,12 @@ function rangeBounds(range: DateRange, customFrom?: string, customTo?: string): 
 }
 
 export function buildVouchers(
+  fin: any,
   type: TxnType,
   range: DateRange,
   customFrom?: string,
   customTo?: string,
 ): TallyVoucher[] {
-  const fin = getFinance();
   const [from, to] = rangeBounds(range, customFrom, customTo);
   const inWindow = (iso: string) => {
     const t = new Date(iso).getTime();

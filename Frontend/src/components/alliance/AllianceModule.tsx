@@ -284,7 +284,7 @@ export function AllianceModule({ scope, executiveId, initialTab, initialAction, 
       approvalMutation.mutate({
         requestId: data.id,
         requestType: "Expense Bill",
-        title: `${data.category} ₹${data.amount} — ${currentUser?.name}`,
+        title: `${data.expenseType || "Expense"} ₹${data.amount} — ${currentUser?.name}`,
         amount: data.amount,
         priority: "Medium",
         notes: data.description || data.notes,

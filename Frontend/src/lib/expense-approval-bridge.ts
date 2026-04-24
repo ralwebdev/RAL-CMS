@@ -38,7 +38,7 @@ export async function submitExpenseForApproval(exp: Expense, submittedBy: string
   return submitApprovalApi({
     requestId: exp.id,
     requestType: "Expense Bill",
-    title: `${exp.title} (₹${exp.total.toLocaleString("en-IN")}) — ${exp.vendorName || exp.description.slice(0, 30)}`,
+    title: `${exp.title || "Expense"} (₹${exp.total.toLocaleString("en-IN")}) — ${exp.vendorName || exp.description.slice(0, 30)}`,
     submittedBy,
     submittedRole,
     amount: exp.total,

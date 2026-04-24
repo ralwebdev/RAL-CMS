@@ -114,7 +114,9 @@ const STABLE_EMPTY_FINANCE = {
 };
 
 export function subscribeFinance(l: any) { return () => {}; }
+/** @deprecated returns empty data. Use useFinance() hook or fetchers instead. */
 export function getFinance() { 
+  console.warn("getFinance() is deprecated and returns empty data.");
   return STABLE_EMPTY_FINANCE; 
 }
 export function recomputeOverdue() {}

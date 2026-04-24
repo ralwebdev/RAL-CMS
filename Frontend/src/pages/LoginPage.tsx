@@ -129,7 +129,9 @@ export default function LoginPage() {
             <div className="flex justify-between"><span>Admin</span><span className="font-mono text-card-foreground">amit@redapple.com / admin123</span></div>
             <div className="flex justify-between"><span>Owner</span><span className="font-mono text-card-foreground">rajesh@redapple.com / owner123</span></div>
             <div className="flex justify-between"><span>Alliance Mgr</span><span className="font-mono text-card-foreground">rohit@redapple.com / alliance123</span></div>
+            <div className="flex justify-between"><span>Alliance Exec</span><span className="font-mono text-card-foreground">sneha@redapple.com / alliance123</span></div>
             <div className="flex justify-between"><span>Accounts Mgr</span><span className="font-mono text-card-foreground">neha@redapple.com / accounts123</span></div>
+            <div className="flex justify-between"><span>Accounts Exec</span><span className="font-mono text-card-foreground">arjun@redapple.com / accounts123</span></div>
           </div>
         </div>
       </div>
