@@ -123,7 +123,14 @@ export function recomputeOverdue() {}
 export function autoSeedEmisForPartial() { return 0; }
 
 // Dummy mock mutation functions to keep UI from breaking before Phase 4 is completely done on every sub-component
-export function createInvoice(input: any, by: string) { return {} as Invoice; }
+export function createInvoice(input: any, by: string) { 
+  return { 
+    ...input, 
+    id: `inv_mock_${Math.random().toString(36).slice(2, 7)}`, 
+    invoiceNo: `PI-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000) + 1000}`,
+    total: input.subtotal + (input.cgst || 0) + (input.sgst || 0) + (input.igst || 0)
+  } as Invoice; 
+}
 export function recordPayment(input: any, by: string) { return {} as Payment; }
 export function createExpense(input: any, by: string) { return {} as Expense; }
 export function setExpenseStatus(id: string, status: any, by: string) {}
@@ -135,3 +142,24 @@ export function payEmi(id: string, mode: any, by: string) {}
 export function updateInvoice(id: string, patch: any, by: string) { return {} as Invoice; }
 export function cancelInvoice(id: string, by: string, reason?: string) { return {} as Invoice; }
 export function cloneInvoice(id: string, by: string) { return {} as Invoice; }
+
+/* ───────── PI / TI helpers ───────── */
+import { getMappingsForPi } from "./pi-ti-store";
+
+/** How much of a PI has already been converted to TI(s). */
+export function piConvertedAmount(piId: string): number {
+  return getMappingsForPi(piId).reduce((s, m) => s + m.linkedAmount, 0);
+}
+
+/** 
+ * Open balance still convertible on a PI. 
+ * Note: In this local-API hybrid, we might not have a global state to look up the invoice total.
+ * This function returns 0 if only ID is provided and no state is found.
+ */
+export function piOpenBalance(piId: string | Invoice): number {
+  if (typeof piId === "object") {
+    return Math.max(0, piId.total - piConvertedAmount(piId.id));
+  }
+  // If we had a global state, we would look up piId here.
+  return 0;
+}

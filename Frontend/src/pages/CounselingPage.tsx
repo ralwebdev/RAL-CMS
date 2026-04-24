@@ -10,6 +10,9 @@ import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PiPendingWidget } from "@/components/counseling/PiPendingWidget";
+import { CollectionsWidget } from "@/components/counseling/CollectionsWidget";
+import { BillingChart } from "@/components/billing/BillingChart";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,6 +50,8 @@ export default function CounselingPage() {
   const [followUps, setFollowUps] = useState<any[]>([]);
   const [admissions, setAdmissions] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const today = new Date().toISOString().split("T")[0];
 
@@ -55,16 +60,20 @@ export default function CounselingPage() {
       setIsLoading(true);
       const token = localStorage.getItem("crm_token");
       const headers = { Authorization: `Bearer ${token}` };
-      const [leadsRes, fuRes, admRes, usersRes] = await Promise.all([
+      const [leadsRes, fuRes, admRes, usersRes, invRes, payRes] = await Promise.all([
         axios.get(`${API_URL}/api/leads`, { headers }),
         axios.get(`${API_URL}/api/followups`, { headers }),
         axios.get(`${API_URL}/api/admissions`, { headers }),
-        axios.get(`${API_URL}/api/users`, { headers })
+        axios.get(`${API_URL}/api/users`, { headers }),
+        axios.get(`${API_URL}/api/finance/invoices`, { headers }),
+        axios.get(`${API_URL}/api/finance/payments`, { headers })
       ]);
       setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
       setFollowUps(fuRes.data.map((f: any) => ({ ...f, id: f._id })));
       setAdmissions(admRes.data.map((a: any) => ({ ...a, id: a._id })));
       setUsers(usersRes.data.map((u: any) => ({ ...u, id: u._id })));
+      setInvoices(invRes.data);
+      setPayments(payRes.data);
     } catch (error) {
       console.error("Error fetching data:", error);
       toast.error("Failed to fetch data");
@@ -185,6 +194,21 @@ export default function CounselingPage() {
         <p className="text-sm text-muted-foreground">Walk-in management, counseling outcomes & joining tracker</p>
       </div>
 
+      {/* PI Pending + Collections widgets — top priority row */}
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        <PiPendingWidget 
+          counselorId={counselorId} 
+          studentNames={myLeads.map(l => l.name)} 
+          invoices={invoices} 
+        />
+        <CollectionsWidget
+          counselorId={counselorId}
+          studentNames={myLeads.map(l => l.name)}
+          students={myLeads.map(l => ({ id: l.id, name: l.name, course: l.interestedCourse || "—" }))}
+          financeData={{ invoices, payments, emiSchedules: [], budgets: [], vendorBills: [], cashflow: [], logs: [] }}
+        />
+      </div>
+
       {/* KPI Ribbon */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
         <StatCard title="Walk-ins Today" value={walkInToday.length} icon={<Users className="h-5 w-5" />} />
@@ -213,9 +237,14 @@ export default function CounselingPage() {
         <TabsList className="bg-muted w-full overflow-x-auto flex-nowrap justify-start">
           <TabsTrigger value="walkins" className="text-xs sm:text-sm">Walk-ins</TabsTrigger>
           <TabsTrigger value="counseling" className="text-xs sm:text-sm">Counseling</TabsTrigger>
+          <TabsTrigger value="billing" className="text-xs sm:text-sm">Billing</TabsTrigger>
           <TabsTrigger value="joining" className="text-xs sm:text-sm">Joining</TabsTrigger>
           <TabsTrigger value="kpi" className="text-xs sm:text-sm">KPI</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="billing" className="mt-4">
+          <BillingChart />
+        </TabsContent>
 
         {/* ═══════ TAB 1: Walk-ins ═══════ */}
         <TabsContent value="walkins" className="mt-4">

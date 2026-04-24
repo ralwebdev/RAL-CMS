@@ -16,34 +16,33 @@ import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Apply protection and role-based authorization to all finance routes
+// Apply protection to all finance routes, but authorization is route-specific
 router.use(protect);
-router.use(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'));
 
 // Vendor routes
 router.route('/vendors')
-  .get(getVendors)
-  .post(createVendor);
+  .get(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), getVendors)
+  .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), createVendor);
 router.route('/vendors/:id')
-  .put(updateVendor);
+  .put(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), updateVendor);
 
 // Invoice routes
 router.route('/invoices')
-  .get(getInvoices)
-  .post(createInvoice);
+  .get(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner', 'counselor'), getInvoices)
+  .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), createInvoice);
 router.route('/invoices/:id')
-  .put(updateInvoice);
+  .put(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), updateInvoice);
 
 // Expense routes
 router.route('/expenses')
-  .get(getExpenses)
-  .post(createExpense);
+  .get(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), getExpenses)
+  .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), createExpense);
 router.route('/expenses/:id')
-  .put(updateExpense);
+  .put(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), updateExpense);
 
 // Payment routes
 router.route('/payments')
-  .get(getPayments)
-  .post(createPayment);
+  .get(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner', 'counselor'), getPayments)
+  .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), createPayment);
 
 export default router;

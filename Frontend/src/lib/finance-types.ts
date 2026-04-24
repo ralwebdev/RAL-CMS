@@ -38,6 +38,7 @@ export interface Invoice {
   status: InvoiceStatus;
   notes?: string;
   gstin?: string;
+  invoiceType?: "PI" | "TI";
   createdBy: string;
   createdAt: string;
 }

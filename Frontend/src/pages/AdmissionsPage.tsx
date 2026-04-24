@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { StatCard } from "@/components/StatCard";
+import { AutoPiPromptDialog } from "@/components/admissions/AutoPiPromptDialog";
 import { GraduationCap, IndianRupee, UserCheck, Plus, CreditCard, AlertCircle, CheckCircle2, User, Phone, Building2, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 
@@ -312,23 +313,27 @@ export default function AdmissionsPage() {
   const { currentUser } = useAuth();
   const [admissions, setAdmissions] = useState<Admission[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [paymentDialogAdm, setPaymentDialogAdm] = useState<Admission | null>(null);
   const [selectedAdm, setSelectedAdm] = useState<Admission | null>(null);
   const [newPaymentIds, setNewPaymentIds] = useState<Set<string>>(new Set());
+  const [autoPiAdm, setAutoPiAdm] = useState<Admission | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
       setIsLoading(true);
       const token = localStorage.getItem("crm_token");
       const headers = { Authorization: `Bearer ${token}` };
-      const [admRes, leadsRes] = await Promise.all([
+      const [admRes, leadsRes, invRes] = await Promise.all([
         axios.get(`${API_URL}/api/admissions`, { headers }),
-        axios.get(`${API_URL}/api/leads`, { headers })
+        axios.get(`${API_URL}/api/leads`, { headers }),
+        axios.get(`${API_URL}/api/finance/invoices`, { headers })
       ]);
       setAdmissions(admRes.data.map((a: any) => ({ ...a, id: a._id })));
       setLeads(leadsRes.data.map((l: any) => ({ ...l, id: l._id })));
+      setInvoices(invRes.data);
       if (admRes.data.length > 0 && !selectedAdm) {
         setSelectedAdm({ ...admRes.data[0], id: admRes.data[0]._id });
       }
@@ -402,6 +407,7 @@ export default function AdmissionsPage() {
       setForm({ leadId: "", courseSelected: "", batch: "", admissionDate: "", totalFee: "", paymentStatus: "Pending", parentName: "", parentPhone: "", studentBankName: "", parentBankName: "" });
       setCreateOpen(false);
       toast.success("Admission created and submitted for approval.");
+      setAutoPiAdm({ ...data, id: data._id } as Admission);
     } catch (error) {
       console.error("Error creating admission:", error);
       toast.error("Failed to create admission");
@@ -622,6 +628,13 @@ export default function AdmissionsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <AutoPiPromptDialog 
+        admission={autoPiAdm} 
+        open={!!autoPiAdm} 
+        onClose={() => setAutoPiAdm(null)} 
+        invoices={invoices}
+      />
     </div>
   );
 }

@@ -51,6 +51,9 @@ import { computeBreakup, detectIntraState, validateGstInput, type GstInputMode }
 import { InvoiceEditDialog } from "./InvoiceEditDialog";
 import { getInvoiceEdits, subscribeInvoiceEdits, HIGH_VALUE_THRESHOLD, type InvoiceEditEntry } from "@/lib/invoice-edit-store";
 import { ProjectionsTab } from "./ProjectionsTab";
+import { VerificationsTab, VerifiedPaymentsTab, CollectionReportsTab } from "./CollectionControlTabs";
+import { CollectionsLogTab, InvoiceRequestsTab } from "./InvoiceRequestTabs";
+import { BillingChart } from "@/components/billing/BillingChart";
 import { computeEmiMetrics, computeStudentRisk } from "@/lib/revenue-projection";
 
 const CHART_COLORS = ["hsl(var(--primary))", "#1A1A1A", "#10b981", "#f59e0b", "#6366f1", "#ec4899", "#0ea5e9"];
@@ -95,9 +98,14 @@ function scope(role: string): RoleScope {
 
 const ALL_TABS: { id: string; label: string; roles: RoleScope[] }[] = [
   { id: "dashboard", label: "Dashboard", roles: ["owner", "manager", "executive"] },
+  { id: "billing_chart", label: "Billing Chart", roles: ["owner", "manager", "executive"] },
   { id: "revenue", label: "Revenue", roles: ["owner"] },
   { id: "projections", label: "Projections", roles: ["owner"] },
   { id: "billing", label: "Billing", roles: ["owner", "manager", "executive"] },
+  { id: "collections_log", label: "Collection Ledger", roles: ["owner", "manager", "executive"] },
+  { id: "invoice_requests", label: "Invoice Requests", roles: ["owner", "manager", "executive"] },
+  { id: "verifications", label: "Verifications", roles: ["owner", "manager"] },
+  { id: "verified_payments", label: "Verified → TI", roles: ["owner", "manager", "executive"] },
   { id: "collections", label: "Collections", roles: ["owner", "manager", "executive"] },
   { id: "emi", label: "EMI", roles: ["owner", "manager"] },
   { id: "expenses", label: "Expenses", roles: ["owner", "manager", "executive"] },
@@ -106,6 +114,7 @@ const ALL_TABS: { id: string; label: string; roles: RoleScope[] }[] = [
   { id: "profit", label: "Profitability", roles: ["owner", "manager"] },
   { id: "cashflow", label: "Cash Flow", roles: ["owner"] },
   { id: "gst", label: "GST", roles: ["owner", "manager"] },
+  { id: "collection_reports", label: "Collection Reports", roles: ["owner", "manager"] },
   { id: "exports", label: "Exports", roles: ["owner", "manager"] },
 ];
 
@@ -150,9 +159,14 @@ export function AccountsModule() {
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-4"><DashboardTab onJump={setTab} /></TabsContent>
+        <TabsContent value="billing_chart" className="mt-4"><BillingChart /></TabsContent>
         <TabsContent value="revenue" className="mt-4"><RevenueTab /></TabsContent>
         <TabsContent value="projections" className="mt-4"><ProjectionsTab data={fin} /></TabsContent>
         <TabsContent value="billing" className="mt-4"><BillingTab role={role} /></TabsContent>
+        <TabsContent value="collections_log" className="mt-4"><CollectionsLogTab role={role} /></TabsContent>
+        <TabsContent value="invoice_requests" className="mt-4"><InvoiceRequestsTab role={role} /></TabsContent>
+        <TabsContent value="verifications" className="mt-4"><VerificationsTab canVerify={currentUser?.role === "admin" || role === "owner" || role === "manager"} /></TabsContent>
+        <TabsContent value="verified_payments" className="mt-4"><VerifiedPaymentsTab role={role} /></TabsContent>
         <TabsContent value="collections" className="mt-4"><CollectionsTab role={role} /></TabsContent>
         <TabsContent value="emi" className="mt-4"><EmiTab /></TabsContent>
         <TabsContent value="expenses" className="mt-4"><ExpensesTab role={role} approvals={fin.approvals} /></TabsContent>
@@ -161,6 +175,7 @@ export function AccountsModule() {
         <TabsContent value="profit" className="mt-4"><ProfitTab /></TabsContent>
         <TabsContent value="cashflow" className="mt-4"><CashflowTab /></TabsContent>
         <TabsContent value="gst" className="mt-4"><GstTab /></TabsContent>
+        <TabsContent value="collection_reports" className="mt-4"><CollectionReportsTab /></TabsContent>
         <TabsContent value="exports" className="mt-4"><ExportsTab /></TabsContent>
       </Tabs>
     </div>
