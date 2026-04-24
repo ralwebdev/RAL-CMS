@@ -2,6 +2,7 @@ import FinanceVendor from '../models/FinanceVendor.js';
 import FinanceInvoice from '../models/FinanceInvoice.js';
 import FinanceExpense from '../models/FinanceExpense.js';
 import FinancePayment from '../models/FinancePayment.js';
+import PiTiMapping from '../models/PiTiMapping.js';
 
 // @desc    Get all vendors
 // @route   GET /api/finance/vendors
@@ -51,7 +52,11 @@ export const updateVendor = async (req, res) => {
 // @access  Private/Admin,Accounts
 export const getInvoices = async (req, res) => {
   try {
-    const invoices = await FinanceInvoice.find({}).populate('studentId', 'name email phone');
+    const query = {};
+    if (req.query.invoiceType) {
+      query.invoiceType = req.query.invoiceType;
+    }
+    const invoices = await FinanceInvoice.find(query).populate('studentId', 'name email phone');
     res.json(invoices);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -68,10 +73,11 @@ export const createInvoice = async (req, res) => {
     if (!data.invoiceNo) {
       const now = new Date();
       const monthKey = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const typeKey = data.invoiceType === 'PI' ? 'PI' : 'INV';
       const count = await FinanceInvoice.countDocuments({
-        invoiceNo: new RegExp(`^INV-${monthKey}`)
+        invoiceNo: new RegExp(`^${typeKey}-${monthKey}`)
       });
-      data.invoiceNo = `INV-${monthKey}-${String(count + 1).padStart(4, '0')}`;
+      data.invoiceNo = `${typeKey}-${monthKey}-${String(count + 1).padStart(4, '0')}`;
     }
 
     // Map frontend 'total' to 'totalAmount' if necessary
@@ -233,5 +239,73 @@ export const createPayment = async (req, res) => {
     res.status(201).json(createdPayment);
   } catch (error) {
     res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Convert PI to TI
+// @route   POST /api/finance/convert-pi-to-ti
+// @access  Private/Admin,Accounts
+export const convertPiToTi = async (req, res) => {
+  try {
+    const { piId, amount, notes } = req.body;
+    const pi = await FinanceInvoice.findById(piId);
+    if (!pi) return res.status(404).json({ message: 'Proforma Invoice not found' });
+    if (pi.invoiceType !== 'PI') return res.status(400).json({ message: 'Only PI can be converted' });
+
+    // Create TI
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const count = await FinanceInvoice.countDocuments({
+      invoiceNo: new RegExp(`^INV-${monthKey}`)
+    });
+    const tiNo = `INV-${monthKey}-${String(count + 1).padStart(4, '0')}`;
+
+    const tiData = {
+      ...pi.toObject(),
+      _id: undefined,
+      invoiceNo: tiNo,
+      invoiceType: 'TI',
+      linkedPiId: pi._id,
+      totalAmount: amount || pi.totalAmount,
+      amountPaid: 0,
+      status: 'Sent',
+      issueDate: now,
+      dueDate: new Date(now.getTime() + 7 * 86400000), // 7 days due by default for TI
+      createdBy: req.user._id,
+      notes: notes || `Converted from ${pi.invoiceNo}`,
+    };
+
+    const ti = new FinanceInvoice(tiData);
+    const createdTi = await ti.save();
+
+    // Record mapping
+    const mapping = new PiTiMapping({
+      piId: pi._id,
+      piNo: pi.invoiceNo,
+      tiId: createdTi._id,
+      tiNo: createdTi.invoiceNo,
+      studentId: pi.customerId,
+      studentName: pi.customerName,
+      linkedAmount: createdTi.totalAmount,
+      convertedBy: req.user._id,
+      mode: 'convert',
+    });
+    await mapping.save();
+
+    res.status(201).json({ ti: createdTi, mapping });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Get PI-TI mappings
+// @route   GET /api/finance/pi-ti-mappings
+// @access  Private/Admin,Accounts
+export const getPiTiMappings = async (req, res) => {
+  try {
+    const mappings = await PiTiMapping.find({}).sort({ createdAt: -1 });
+    res.json(mappings);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };

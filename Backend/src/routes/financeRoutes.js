@@ -11,6 +11,8 @@ import {
   updateExpense,
   getPayments,
   createPayment,
+  convertPiToTi,
+  getPiTiMappings,
 } from '../controllers/financeController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -44,5 +46,9 @@ router.route('/expenses/:id')
 router.route('/payments')
   .get(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner', 'counselor'), getPayments)
   .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), createPayment);
+
+// PI-TI Lifecycle routes
+router.post('/convert-pi-to-ti', authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), convertPiToTi);
+router.get('/pi-ti-mappings', authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), getPiTiMappings);
 
 export default router;

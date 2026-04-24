@@ -75,6 +75,22 @@ const FinanceInvoiceSchema = new mongoose.Schema({
     enum: ['Draft', 'Sent', 'Partial', 'Paid', 'Overdue', 'Cancelled'],
     default: 'Draft',
   },
+  invoiceType: {
+    type: String,
+    enum: ['PI', 'TI'],
+    default: 'TI',
+  },
+  linkedPiId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FinanceInvoice',
+  },
+  conversionDate: {
+    type: Date,
+  },
+  convertedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
   issueDate: {
     type: Date,
     default: Date.now,

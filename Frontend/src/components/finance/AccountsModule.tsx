@@ -64,10 +64,11 @@ function useFinance() {
   const paymentsQuery = useQuery({ queryKey: ['payments'], queryFn: fetchPayments });
   const vendorsQuery = useQuery({ queryKey: ['vendors'], queryFn: fetchVendors });
   const approvalsQuery = useQuery({ queryKey: ['approvals'], queryFn: fetchApprovals });
+  const piTiMappingsQuery = useQuery({ queryKey: ['piTiMappings'], queryFn: fetchPiTiMappingsApi });
 
   const mockData = useMemo(() => getMockFinanceData(), []);
 
-  const isLoading = invoicesQuery.isLoading || expensesQuery.isLoading || paymentsQuery.isLoading || vendorsQuery.isLoading;
+  const isLoading = invoicesQuery.isLoading || expensesQuery.isLoading || paymentsQuery.isLoading || vendorsQuery.isLoading || piTiMappingsQuery.isLoading;
 
   return {
     invoices: invoicesQuery.data || [],
@@ -75,6 +76,7 @@ function useFinance() {
     payments: paymentsQuery.data || [],
     vendors: vendorsQuery.data || [],
     approvals: (approvalsQuery.data || []) as ApprovalRequest[],
+    piTiMappings: piTiMappingsQuery.data || [],
     ...mockData,
     isLoading: isLoading || approvalsQuery.isLoading
   };
@@ -175,7 +177,7 @@ export function AccountsModule() {
         <TabsContent value="profit" className="mt-4"><ProfitTab /></TabsContent>
         <TabsContent value="cashflow" className="mt-4"><CashflowTab /></TabsContent>
         <TabsContent value="gst" className="mt-4"><GstTab /></TabsContent>
-        <TabsContent value="collection_reports" className="mt-4"><CollectionReportsTab /></TabsContent>
+        <TabsContent value="collection_reports" className="mt-4"><CollectionReportsTab invoices={fin.invoices} /></TabsContent>
         <TabsContent value="exports" className="mt-4"><ExportsTab /></TabsContent>
       </Tabs>
     </div>
@@ -202,7 +204,7 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
   }, 0);
   const totalExpenses = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + (e.total ?? 0), 0);
   const netProfit = totalCollected - totalExpenses;
-  const gstOutput = fin.invoices.reduce((s, i) => s + i.cgst + i.sgst + i.igst, 0);
+  const gstOutput = fin.invoices.filter(i => i.invoiceType === 'TI').reduce((s, i) => s + i.cgst + i.sgst + i.igst, 0);
   const gstInput = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.gst, 0);
   const gstLiability = Math.max(0, gstOutput - gstInput);
 
@@ -541,6 +543,7 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     gstin: "", notes: "",
     mode: "gross_inclusive" as GstInputMode,
     intra: true, intraOverridden: false,
+    invoiceType: "TI" as "PI" | "TI",
   });
 
   useEffect(() => {
@@ -582,6 +585,7 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
       gstType: f.gstType, gstRate: effectiveRate, gstin: f.gstin, notes: f.notes,
       cgst: breakup.cgst, sgst: breakup.sgst, igst: breakup.igst,
       totalAmount: breakup.taxable + breakup.gstAmount,
+      invoiceType: f.invoiceType,
       createdBy: currentUser?.id || "u0",
     });
   };
@@ -596,6 +600,15 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {["Student", "Institution", "Event", "Other"].map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="col-span-1"><Label>Invoice Type</Label>
+            <Select value={f.invoiceType} onValueChange={(v: any) => setF({ ...f, invoiceType: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="PI">Proforma (PI)</SelectItem>
+                <SelectItem value="TI">Tax Invoice (TI)</SelectItem>
               </SelectContent>
             </Select>
           </div>

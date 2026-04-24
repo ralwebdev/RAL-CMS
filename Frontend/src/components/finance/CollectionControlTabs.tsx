@@ -30,7 +30,7 @@ import {
   notifyVerified, notifyMismatch, notifyTiGeneratedFromCollection,
   scanStalePendingVerifications,
 } from "@/lib/collection-notifications";
-import { createInvoice, getFinance } from "@/lib/finance-store";
+import { createInvoiceApi, convertPiToTiApi, fetchInvoices } from "@/lib/finance-store";
 import { computeBreakup } from "@/lib/gst-calc";
 import { FinanceKpi, fmtINR } from "./FinanceKpi";
 
@@ -296,34 +296,66 @@ export function VerifiedPaymentsTab({ role }: { role: "owner" | "manager" | "exe
   const generated = items.filter(c => c.status === "Invoice Generated");
   const blocked = items.filter(c => c.status === "Awaiting Verification" || c.status === "Mismatch");
 
-  const generate = (c: Collection) => {
+  const generate = async (c: Collection) => {
     if (c.status !== "Verified" && c.status !== "Ready For Invoice") {
       toast.error("Tax Invoice can only be created after admin verification.");
       return;
     }
-    const amount = c.verifiedAmount ?? c.amount;
-    const breakup = computeBreakup(amount, 18, "gross_inclusive", true);
-    const inv = createInvoice({
-      invoiceType: "TI",
-      customerId: c.studentId,
-      customerName: c.studentName,
-      customerType: "Student",
-      revenueStream: "Student Admissions",
-      programName: c.courseName,
-      issueDate: new Date().toISOString(),
-      dueDate: new Date().toISOString(),
-      subtotal: breakup.taxable,
-      discount: 0,
-      gstType: "Taxable",
-      gstRate: 18,
-      notes: `From verified collection ${c.receiptRef}`,
-    } as Parameters<typeof createInvoice>[0], currentUser?.id || "u0");
-    inv.cgst = breakup.cgst; inv.sgst = breakup.sgst; inv.igst = breakup.igst;
+    
+    try {
+      const amount = c.verifiedAmount ?? c.amount;
+      const breakup = computeBreakup(amount, 18, "gross_inclusive", true);
+      
+      // Check for existing PIs for this student to convert
+      const allInvoices = await fetchInvoices();
+      const existingPi = allInvoices.find(i => 
+        i.customerId === c.studentId && 
+        i.invoiceType === 'PI' && 
+        i.status !== 'Paid' &&
+        i.status !== 'Cancelled'
+      );
 
-    const updated = linkTiToCollection(c.id, inv.id, inv.invoiceNo, {
-      id: currentUser?.id || "u0", name: currentUser?.name || "Accounts", role: currentUser?.role || "accounts_manager",
-    });
-    if (updated) notifyTiGeneratedFromCollection(updated);
+      let inv;
+      if (existingPi) {
+        // Convert existing PI to TI
+        const res = await convertPiToTiApi({
+          piId: existingPi.id,
+          amount: amount,
+          notes: `Converted from ${existingPi.invoiceNo} via collection ${c.receiptRef}`
+        });
+        inv = res.ti;
+        toast.success(`PI ${existingPi.invoiceNo} converted to TI ${inv.invoiceNo}`);
+      } else {
+        // Create fresh TI
+        inv = await createInvoiceApi({
+          invoiceType: "TI",
+          customerId: c.studentId,
+          customerName: c.studentName,
+          customerType: "Student",
+          revenueStream: "Student Admissions",
+          programName: c.courseName,
+          issueDate: new Date().toISOString(),
+          dueDate: new Date().toISOString(),
+          subtotal: breakup.taxable,
+          discount: 0,
+          gstType: "Taxable",
+          gstRate: 18,
+          notes: `From verified collection ${c.receiptRef}`,
+          cgst: breakup.cgst,
+          sgst: breakup.sgst,
+          igst: breakup.igst,
+          totalAmount: amount,
+        });
+        toast.success(`Tax Invoice ${inv.invoiceNo} generated`);
+      }
+
+      const updated = linkTiToCollection(c.id, inv.id, inv.invoiceNo, {
+        id: currentUser?.id || "u0", name: currentUser?.name || "Accounts", role: currentUser?.role || "accounts_manager",
+      });
+      if (updated) notifyTiGeneratedFromCollection(updated);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || error.message || "Failed to generate invoice");
+    }
   };
 
   const handleOverride = () => {
@@ -491,9 +523,8 @@ async function downloadExcel(filename: string, sheets: { name: string; rows: Rec
   XLSX.writeFile(wb, filename);
 }
 
-export function CollectionReportsTab() {
+export function CollectionReportsTab({ invoices = [] }: { invoices?: any[] }) {
   const items = useCol();
-  const fin = getFinance();
   const [active, setActive] = useState<CollectionReportKey>("daily_register");
 
   const todayKey = new Date().toDateString();
@@ -514,8 +545,8 @@ export function CollectionReportsTab() {
   }, [items]);
 
   const fineItems = items.filter(c => c.reason === "emi_late_fine" || (c.lateFeeAmount && c.lateFeeAmount > 0));
-  const piTotal = fin.invoices.filter(i => i.invoiceType === "PI").reduce((s, i) => s + (i.total - i.amountPaid), 0);
-  const tiTotal = fin.invoices.filter(i => i.invoiceType === "TI").reduce((s, i) => s + i.amountPaid, 0);
+  const piTotal = invoices.filter(i => i.invoiceType === "PI").reduce((s, i) => s + ((i.total || i.totalAmount || 0) - (i.amountPaid || 0)), 0);
+  const tiTotal = invoices.filter(i => i.invoiceType === "TI").reduce((s, i) => s + (i.amountPaid || 0), 0);
 
   const cashToBank = useMemo(() => {
     const cash = items.filter(c => c.mode === "cash" && c.status !== "Rejected").reduce((s, c) => s + (c.verifiedAmount ?? c.amount), 0);

@@ -70,6 +70,16 @@ export const createVendorApi = async (vendor: any) => {
   return data;
 };
 
+export const convertPiToTiApi = async (payload: { piId: string; amount?: number; notes?: string }) => {
+  const { data } = await axios.post(`${API_URL}/api/finance/convert-pi-to-ti`, payload, getHeaders());
+  return data;
+};
+
+export const fetchPiTiMappingsApi = async () => {
+  const { data } = await axios.get(`${API_URL}/api/finance/pi-ti-mappings`, getHeaders());
+  return data;
+};
+
 
 /* ───────── MOCK DATA FOR UNSUPPORTED MODELS ───────── */
 // The backend currently does not support VendorBills, Budgets, CashFlow, and EMIs.
@@ -147,19 +157,17 @@ export function cloneInvoice(id: string, by: string) { return {} as Invoice; }
 import { getMappingsForPi } from "./pi-ti-store";
 
 /** How much of a PI has already been converted to TI(s). */
-export function piConvertedAmount(piId: string): number {
-  return getMappingsForPi(piId).reduce((s, m) => s + m.linkedAmount, 0);
+export function piConvertedAmount(piId: string, mappings: any[] = []): number {
+  const mps = mappings.length > 0 ? mappings : getMappingsForPi(piId);
+  return mps.filter(m => m.piId === piId).reduce((s, m) => s + m.linkedAmount, 0);
 }
 
 /** 
  * Open balance still convertible on a PI. 
- * Note: In this local-API hybrid, we might not have a global state to look up the invoice total.
- * This function returns 0 if only ID is provided and no state is found.
  */
-export function piOpenBalance(piId: string | Invoice): number {
+export function piOpenBalance(piId: string | Invoice, mappings: any[] = []): number {
   if (typeof piId === "object") {
-    return Math.max(0, piId.total - piConvertedAmount(piId.id));
+    return Math.max(0, piId.total - piConvertedAmount(piId.id, mappings));
   }
-  // If we had a global state, we would look up piId here.
   return 0;
 }
