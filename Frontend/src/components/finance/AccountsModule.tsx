@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
-  getMockFinanceData, fetchInvoices, fetchExpenses, fetchPayments, fetchVendors,
+  getMockFinanceData, fetchInvoices, fetchExpenses, fetchPayments, fetchVendors, fetchPiTiMappingsApi,
   recomputeOverdue, autoSeedEmisForPartial,
   createInvoiceApi, createPaymentApi, updateExpenseApi, createExpenseApi, createVendorApi,
   createVendorBill, payVendorBill, createBudget, payEmi,
@@ -204,7 +204,7 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
   }, 0);
   const totalExpenses = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + (e.total ?? 0), 0);
   const netProfit = totalCollected - totalExpenses;
-  const gstOutput = fin.invoices.filter(i => i.invoiceType === 'TI').reduce((s, i) => s + i.cgst + i.sgst + i.igst, 0);
+  const gstOutput = fin.invoices.filter(i => i.invoiceType === 'TI').reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
   const gstInput = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.gst, 0);
   const gstLiability = Math.max(0, gstOutput - gstInput);
 
@@ -1278,7 +1278,7 @@ function CashflowTab() {
 /* ───────── GST ───────── */
 function GstTab() {
   const fin = useFinance();
-  const output = (fin.invoices || []).reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
+  const output = (fin.invoices || []).filter(i => i.invoiceType === 'TI').reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
   const input = (fin.expenses || []).filter(e => e.status === "Approved").reduce((s, e) => s + (e.gst || 0), 0);
   const payable = Math.max(0, output - input);
 
