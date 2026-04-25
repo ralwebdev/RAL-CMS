@@ -1,31 +1,32 @@
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ArrowRight, Link2, AlertTriangle, ShieldCheck } from "lucide-react";
 import {
-  getFinance, subscribeFinance, convertPiToTi, linkExistingTiToPi, piOpenBalance, piConvertedAmount,
+  fetchInvoices, fetchPiTiMappingsApi, convertPiToTiApi, linkExistingTiToPiApi,
+  piOpenBalance, piConvertedAmount, createPaymentApi
 } from "@/lib/finance-store";
 import type { Invoice, PaymentMode } from "@/lib/finance-types";
 import { fmtINR } from "./FinanceKpi";
 import { notifyTiGenerated, notifyPiConverted } from "@/lib/pi-ti-notifications";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 interface Props { pi: Invoice | null; open: boolean; onClose: () => void }
 
-function useFinance() {
-  return useSyncExternalStore(subscribeFinance, getFinance, getFinance);
-}
 
 export function PiToTiConvertDialog({ pi, open, onClose }: Props) {
-  const fin = useFinance();
+  const { data: invoices = [] } = useQuery({ queryKey: ['invoices'], queryFn: fetchInvoices });
+  const { data: mappings = [] } = useQuery({ queryKey: ['piTiMappings'], queryFn: fetchPiTiMappingsApi });
+  const queryClient = useQueryClient();
+  
   const { currentUser } = useAuth();
   const { toast } = useToast();
   const [tab, setTab] = useState<"convert" | "link">("convert");
@@ -36,18 +37,18 @@ export function PiToTiConvertDialog({ pi, open, onClose }: Props) {
   const [confirmText, setConfirmText] = useState("");
 
   const open_ = open && !!pi;
-  const openBalance = pi ? piOpenBalance(pi.id) : 0;
-  const converted = pi ? piConvertedAmount(pi.id) : 0;
+  const openBalance = pi ? piOpenBalance(pi.id, mappings) : 0;
+  const converted = pi ? piConvertedAmount(pi.id, mappings) : 0;
   const isOwner = currentUser?.role === "owner" || currentUser?.role === "admin";
   const wouldOverpost = pi ? amount > openBalance + 0.5 : false;
 
   const standaloneTis = useMemo(
-    () => fin.invoices.filter(i =>
+    () => invoices.filter(i =>
       i.invoiceType === "TI"
       && !i.linkedPiId
       && pi && i.customerName.toLowerCase() === pi.customerName.toLowerCase()
     ),
-    [fin.invoices, pi],
+    [invoices, pi],
   );
 
   const reset = () => {
@@ -55,6 +56,46 @@ export function PiToTiConvertDialog({ pi, open, onClose }: Props) {
   };
 
   const close = () => { reset(); onClose(); };
+
+  const convertMutation = useMutation({
+    mutationFn: convertPiToTiApi,
+    onSuccess: async (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['piTiMappings'] });
+      
+      if (paymentMode !== "none") {
+        await createPaymentApi({
+          invoiceId: data.ti._id || data.ti.id,
+          customerId: data.ti.customerId,
+          customerName: data.ti.customerName,
+          amount: variables.amount,
+          mode: paymentMode,
+          paidOn: new Date().toISOString(),
+          reference: `CONVERT-${Date.now()}`,
+          recordedBy: currentUser?.id || "u0",
+        });
+        queryClient.invalidateQueries({ queryKey: ['payments'] });
+      }
+
+      notifyTiGenerated(data.ti);
+      if (pi) notifyPiConverted(pi, data.ti, variables.amount || pi.totalAmount);
+      
+      toast({ title: "PI successfully converted and linked to TI.", description: `${data.ti.invoiceNo} · ${fmtINR(variables.amount || 0)}` });
+      close();
+    },
+    onError: (error: any) => toast({ title: "Conversion failed", description: error.response?.data?.message || error.message, variant: "destructive" })
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: linkExistingTiToPiApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['piTiMappings'] });
+      toast({ title: "Existing TI linked to PI." });
+      close();
+    },
+    onError: (error: any) => toast({ title: "Link failed", description: error.response?.data?.message || error.message, variant: "destructive" })
+  });
 
   const submitConvert = () => {
     if (!pi) return;
@@ -70,26 +111,17 @@ export function PiToTiConvertDialog({ pi, open, onClose }: Props) {
         return;
       }
     }
-    const r = convertPiToTi({
-      piId: pi.id, amount, by: currentUser?.id || "u0", byName: currentUser?.name,
-      reason, recordPaymentMode: paymentMode === "none" ? undefined : paymentMode,
+    convertMutation.mutate({
+      piId: pi.id, amount, notes: reason
     });
-    if (!r) { toast({ title: "Conversion failed", variant: "destructive" }); return; }
-    notifyTiGenerated(r.ti);
-    notifyPiConverted(pi, r.ti, amount);
-    toast({ title: "PI successfully converted and linked to TI.", description: `${r.ti.invoiceNo} · ${fmtINR(amount)}` });
-    close();
   };
 
   const submitLink = () => {
     if (!pi || !pickedTi) { toast({ title: "Pick a TI to link", variant: "destructive" }); return; }
     if (!reason.trim()) { toast({ title: "Link reason required", variant: "destructive" }); return; }
-    const r = linkExistingTiToPi({
-      piId: pi.id, tiId: pickedTi, by: currentUser?.id || "u0", byName: currentUser?.name, reason,
+    linkMutation.mutate({
+      piId: pi.id, tiId: pickedTi, reason
     });
-    if (!r) { toast({ title: "Link failed (already linked?)", variant: "destructive" }); return; }
-    toast({ title: "Existing TI linked to PI." });
-    close();
   };
 
   if (!pi) return null;
@@ -158,8 +190,8 @@ export function PiToTiConvertDialog({ pi, open, onClose }: Props) {
               </Card>
             )}
 
-            <Button className="w-full" onClick={submitConvert}>
-              <ArrowRight className="h-4 w-4 mr-1" /> Convert & Generate TI
+            <Button className="w-full" onClick={submitConvert} disabled={convertMutation.isPending}>
+              <ArrowRight className="h-4 w-4 mr-1" /> {convertMutation.isPending ? "Converting..." : "Convert & Generate TI"}
             </Button>
             <p className="text-[11px] text-muted-foreground flex items-center gap-1">
               <ShieldCheck className="h-3 w-3" /> TI tracks money received. PI receivable will reduce automatically.
@@ -186,8 +218,8 @@ export function PiToTiConvertDialog({ pi, open, onClose }: Props) {
               <Label>Reason</Label>
               <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Walk-in cash receipt earlier raised standalone." />
             </div>
-            <Button className="w-full" disabled={!pickedTi} onClick={submitLink}>
-              <Link2 className="h-4 w-4 mr-1" /> Link to PI
+            <Button className="w-full" disabled={!pickedTi || linkMutation.isPending} onClick={submitLink}>
+              <Link2 className="h-4 w-4 mr-1" /> {linkMutation.isPending ? "Linking..." : "Link to PI"}
             </Button>
           </TabsContent>
         </Tabs>

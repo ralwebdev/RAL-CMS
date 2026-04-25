@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
-  getMockFinanceData, fetchInvoices, fetchExpenses, fetchPayments, fetchVendors, fetchPiTiMappingsApi,
+  getMockFinanceData, fetchInvoices, fetchExpenses, fetchPayments, fetchVendors, fetchVendorBillsApi, fetchPiTiMappingsApi,
   recomputeOverdue, autoSeedEmisForPartial,
   createInvoiceApi, createPaymentApi, updateExpenseApi, createExpenseApi, createVendorApi,
-  createVendorBill, payVendorBill, createBudget, payEmi,
+  createVendorBillApi, updateVendorBillApi, createBudget, payEmi,
 } from "@/lib/finance-store";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -51,10 +51,15 @@ import { computeBreakup, detectIntraState, validateGstInput, type GstInputMode }
 import { InvoiceEditDialog } from "./InvoiceEditDialog";
 import { getInvoiceEdits, subscribeInvoiceEdits, HIGH_VALUE_THRESHOLD, type InvoiceEditEntry } from "@/lib/invoice-edit-store";
 import { ProjectionsTab } from "./ProjectionsTab";
+import { ReportsTab } from "./ReportsTab";
 import { VerificationsTab, VerifiedPaymentsTab, CollectionReportsTab } from "./CollectionControlTabs";
 import { CollectionsLogTab, InvoiceRequestsTab } from "./InvoiceRequestTabs";
 import { BillingChart } from "@/components/billing/BillingChart";
-import { computeEmiMetrics, computeStudentRisk } from "@/lib/revenue-projection";
+import { AdminBillingTab } from "./AdminBillingTab";
+import { computeEmiMetrics, computeStudentRisk, computePiTiSplit, computePiTiMonthlyTrend } from "@/lib/revenue-projection";
+import { PiToTiConvertDialog } from "./PiToTiConvertDialog";
+import { piOpenBalance, piConvertedAmount } from "@/lib/finance-store";
+import { ArrowRight } from "lucide-react";
 
 const CHART_COLORS = ["hsl(var(--primary))", "#1A1A1A", "#10b981", "#f59e0b", "#6366f1", "#ec4899", "#0ea5e9"];
 
@@ -63,18 +68,20 @@ function useFinance() {
   const expensesQuery = useQuery({ queryKey: ['expenses'], queryFn: fetchExpenses });
   const paymentsQuery = useQuery({ queryKey: ['payments'], queryFn: fetchPayments });
   const vendorsQuery = useQuery({ queryKey: ['vendors'], queryFn: fetchVendors });
+  const vendorBillsQuery = useQuery({ queryKey: ['vendor-bills'], queryFn: fetchVendorBillsApi });
   const approvalsQuery = useQuery({ queryKey: ['approvals'], queryFn: fetchApprovals });
   const piTiMappingsQuery = useQuery({ queryKey: ['piTiMappings'], queryFn: fetchPiTiMappingsApi });
 
   const mockData = useMemo(() => getMockFinanceData(), []);
 
-  const isLoading = invoicesQuery.isLoading || expensesQuery.isLoading || paymentsQuery.isLoading || vendorsQuery.isLoading || piTiMappingsQuery.isLoading;
+  const isLoading = invoicesQuery.isLoading || expensesQuery.isLoading || paymentsQuery.isLoading || vendorsQuery.isLoading || vendorBillsQuery.isLoading || piTiMappingsQuery.isLoading;
 
   return {
     invoices: invoicesQuery.data || [],
     expenses: expensesQuery.data || [],
     payments: paymentsQuery.data || [],
     vendors: vendorsQuery.data || [],
+    vendorBills: vendorBillsQuery.data || [],
     approvals: (approvalsQuery.data || []) as ApprovalRequest[],
     piTiMappings: piTiMappingsQuery.data || [],
     ...mockData,
@@ -116,6 +123,7 @@ const ALL_TABS: { id: string; label: string; roles: RoleScope[] }[] = [
   { id: "profit", label: "Profitability", roles: ["owner", "manager"] },
   { id: "cashflow", label: "Cash Flow", roles: ["owner"] },
   { id: "gst", label: "GST", roles: ["owner", "manager"] },
+  { id: "reports", label: "Reports", roles: ["owner", "manager"] },
   { id: "collection_reports", label: "Collection Reports", roles: ["owner", "manager"] },
   { id: "exports", label: "Exports", roles: ["owner", "manager"] },
 ];
@@ -123,11 +131,12 @@ const ALL_TABS: { id: string; label: string; roles: RoleScope[] }[] = [
 export function AccountsModule() {
   const fin = useFinance();
   const { currentUser } = useAuth();
+  const isAdmin = currentUser?.role === "admin";
   const role = scope(currentUser?.role || "accounts_executive");
   const tabs = ALL_TABS.filter(t => t.roles.includes(role));
   const [tab, setTab] = useState(tabs[0].id);
 
-  useEffect(() => { recomputeOverdue(); autoSeedEmisForPartial(); }, []);
+  useEffect(() => { recomputeOverdue(); autoSeedEmisForPartial(); }, [fin.invoices]);
 
   if (fin.isLoading) {
     return (
@@ -136,6 +145,10 @@ export function AccountsModule() {
       </div>
     );
   }
+
+  // Admin gets a focused, single-tab Verification Control Center —
+  // no duplicate Billing Chart, no invoice issuance surfaces.
+  if (isAdmin) return <AdminBillingTab />;
 
   return (
     <div className="space-y-6">
@@ -177,7 +190,8 @@ export function AccountsModule() {
         <TabsContent value="profit" className="mt-4"><ProfitTab /></TabsContent>
         <TabsContent value="cashflow" className="mt-4"><CashflowTab /></TabsContent>
         <TabsContent value="gst" className="mt-4"><GstTab /></TabsContent>
-        <TabsContent value="collection_reports" className="mt-4"><CollectionReportsTab invoices={fin.invoices} /></TabsContent>
+        <TabsContent value="reports" className="mt-4"><ReportsTab /></TabsContent>
+        <TabsContent value="collection_reports" className="mt-4"><CollectionReportsTab /></TabsContent>
         <TabsContent value="exports" className="mt-4"><ExportsTab /></TabsContent>
       </Tabs>
     </div>
@@ -305,6 +319,8 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
         <FinanceKpi label="Risk Revenue" value={fmtINR(riskAtStake)} hint={`${riskRows.filter(r => r.riskLevel !== "low").length} students`} tone={riskAtStake > 0 ? "warning" : "success"} icon={<ShieldCheck className="h-4 w-4" />} onClick={() => onJump("projections")} />
       </div>
 
+      <PiTiDashboardSection onJump={onJump} />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="p-4 lg:col-span-2">
           <h3 className="text-sm font-semibold mb-3">Revenue vs Expense Trend</h3>
@@ -340,6 +356,60 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
               <YAxis fontSize={11} tickFormatter={(v) => v >= 100000 ? `${(v/100000).toFixed(0)}L` : `${v/1000}k`} />
               <Tooltip formatter={(v: number) => fmtINR(v)} />
               <Bar dataKey="value" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+/* ───────── PI / TI Dashboard split ───────── */
+function PiTiDashboardSection({ onJump }: { onJump: (id: string) => void }) {
+  const fin = useFinance();
+  const split = useMemo(
+    () => computePiTiSplit(fin.invoices, fin.payments, (id) => piOpenBalance(id, fin.piTiMappings)),
+    [fin.invoices, fin.payments, fin.piTiMappings],
+  );
+  const trend = useMemo(
+    () => computePiTiMonthlyTrend(fin.invoices, fin.payments, 6),
+    [fin.invoices, fin.payments],
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <FinanceKpi label="Receivables (PI)" value={fmtINR(split.piReceivableOpen)} hint="Open Proforma" tone="warning" icon={<FileText className="h-4 w-4" />} onClick={() => onJump("billing")} />
+        <FinanceKpi label="Realized Revenue (TI)" value={fmtINR(split.realizedRevenueBilled)} hint={`Collected ${fmtINR(split.realizedRevenueCollected)}`} tone="success" icon={<Receipt className="h-4 w-4" />} onClick={() => onJump("billing")} />
+        <FinanceKpi label="PI→TI Conversion" value={`${split.piToTiConversionPct}%`} hint={`${fmtINR(split.piConverted)} of ${fmtINR(split.piRaised)}`} tone={split.piToTiConversionPct >= 60 ? "success" : "warning"} onClick={() => onJump("reports")} />
+        <FinanceKpi label="GST Liability (TI)" value={fmtINR(split.gstFromTi)} hint="From TI only" tone="primary" icon={<BadgePercent className="h-4 w-4" />} onClick={() => onJump("gst")} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="p-4 lg:col-span-2">
+          <h3 className="text-sm font-semibold mb-3">PI vs TI Monthly Trend</h3>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={trend}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.2} stroke="hsl(var(--border))" />
+              <XAxis dataKey="label" fontSize={11} tick={{ fill: "hsl(var(--muted-foreground))" }} />
+              <YAxis fontSize={11} tick={{ fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => v >= 100000 ? `${(v/100000).toFixed(0)}L` : `${v/1000}k`} />
+              <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} formatter={(v: number) => fmtINR(v)} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="piRaised" name="PI Raised" fill="hsl(var(--warning))" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="tiGenerated" name="TI Generated" fill="hsl(var(--success))" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="collected" name="TI Collected" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card className="p-4">
+          <h3 className="text-sm font-semibold mb-3">Receivable Aging (PI only)</h3>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={split.piAgingBuckets}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.2} stroke="hsl(var(--border))" />
+              <XAxis dataKey="bucket" fontSize={11} tick={{ fill: "hsl(var(--muted-foreground))" }} />
+              <YAxis fontSize={11} tick={{ fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => v >= 100000 ? `${(v/100000).toFixed(0)}L` : `${v/1000}k`} />
+              <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} formatter={(v: number) => fmtINR(v)} />
+              <Bar dataKey="amount" fill="hsl(var(--warning))" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </Card>
@@ -543,7 +613,7 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     gstin: "", notes: "",
     mode: "gross_inclusive" as GstInputMode,
     intra: true, intraOverridden: false,
-    invoiceType: "TI" as "PI" | "TI",
+    invoiceType: "PI" as "PI" | "TI",
   });
 
   useEffect(() => {
@@ -591,7 +661,7 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   };
 
   return (
-    <FinanceDrawer open={open} onOpenChange={(o) => !o && onClose()} title="Create Invoice" description="Enter gross fee — taxable & GST split automatically.">
+    <FinanceDrawer open={open} onOpenChange={(o) => !o && onClose()} title="Create Proforma Invoice (PI)" description="Enter gross fee — taxable & GST split automatically.">
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div><Label>Customer Name</Label><Input value={f.customerName} onChange={e => setF({ ...f, customerName: e.target.value })} /></div>
@@ -600,15 +670,6 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {["Student", "Institution", "Event", "Other"].map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="col-span-1"><Label>Invoice Type</Label>
-            <Select value={f.invoiceType} onValueChange={(v: any) => setF({ ...f, invoiceType: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="PI">Proforma (PI)</SelectItem>
-                <SelectItem value="TI">Tax Invoice (TI)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -992,10 +1053,24 @@ function VendorsTab({ role }: { role: RoleScope }) {
     { key: "status", header: "Status", render: r => <StatusPill status={r.status} tone={statusTone(r.status)} />, exportValue: r => r.status },
     {
       key: "actions", header: "", render: r => r.status !== "Paid" && (role === "owner" || role === "manager")
-        ? <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); payVendorBill(r.id, r.total - r.paid, currentUser?.id || "u0"); toast({ title: "Payment released" }); }}>Pay</Button>
+        ? <Button size="sm" variant="outline" onClick={(e) => { 
+            e.stopPropagation(); 
+            payMutation.mutate({ id: r.id, paid: r.total, status: "Paid" });
+          }}>Pay</Button>
         : null
     },
   ];
+
+  const queryClient = useQueryClient();
+  const payMutation = useMutation({
+    mutationFn: updateVendorBillApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendor-bills'] });
+      toast({ title: "Payment recorded" });
+    },
+    onError: (err: any) => toast({ title: "Payment failed", description: err.message, variant: "destructive" })
+  });
+
 
   return (
     <div className="space-y-3">
@@ -1030,6 +1105,10 @@ function VendorFormDrawer({ open, onClose }: { open: boolean; onClose: () => voi
   const { toast } = useToast();
   const [f, setF] = useState({ name: "", category: "", gstin: "", contactName: "", phone: "", email: "", address: "", openingBalance: 0 });
 
+  useEffect(() => {
+    if (open) setF({ name: "", category: "", gstin: "", contactName: "", phone: "", email: "", address: "", openingBalance: 0 });
+  }, [open]);
+
   const queryClient = useQueryClient();
   const createMutation = useMutation({
     mutationFn: createVendorApi,
@@ -1044,21 +1123,32 @@ function VendorFormDrawer({ open, onClose }: { open: boolean; onClose: () => voi
   });
 
   const submit = () => {
-    if (!f.name) { toast({ title: "Name required", variant: "destructive" }); return; }
+    if (!f.name || !f.category) { 
+      toast({ title: "Name and Category required", variant: "destructive" }); 
+      return; 
+    }
     createMutation.mutate(f);
   };
 
   return (
     <FinanceDrawer open={open} onOpenChange={(o) => !o && onClose()} title="Add Vendor">
       <div className="space-y-3">
-        <div><Label>Name</Label><Input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></div>
-        <div><Label>Category</Label><Input value={f.category} onChange={e => setF({ ...f, category: e.target.value })} placeholder="Marketing / IT / Trainer / Rent" /></div>
+        <div><Label>Name <span className="text-destructive">*</span></Label><Input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></div>
+        <div><Label>Category <span className="text-destructive">*</span></Label>
+          <Select value={f.category} onValueChange={v => setF({ ...f, category: v })}>
+            <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+            <SelectContent>
+              {["Marketing", "IT", "Trainer", "Rent", "Office", "Consultant", "Misc"].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
         <div className="grid grid-cols-2 gap-2">
-          <div><Label>Contact</Label><Input value={f.contactName} onChange={e => setF({ ...f, contactName: e.target.value })} /></div>
+          <div><Label>Contact Name</Label><Input value={f.contactName} onChange={e => setF({ ...f, contactName: e.target.value })} /></div>
           <div><Label>Phone</Label><Input value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} /></div>
         </div>
         <div><Label>GSTIN</Label><Input value={f.gstin} onChange={e => setF({ ...f, gstin: e.target.value })} /></div>
         <div><Label>Email</Label><Input value={f.email} onChange={e => setF({ ...f, email: e.target.value })} /></div>
+        <div><Label>Address</Label><Textarea value={f.address} onChange={e => setF({ ...f, address: e.target.value })} rows={2} /></div>
         <Button className="w-full" onClick={submit} disabled={createMutation.isPending}>
           {createMutation.isPending ? "Saving..." : "Save Vendor"}
         </Button>
@@ -1067,11 +1157,42 @@ function VendorFormDrawer({ open, onClose }: { open: boolean; onClose: () => voi
   );
 }
 
+
 function VendorBillFormDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const fin = useFinance();
   const { currentUser } = useAuth();
   const { toast } = useToast();
   const [f, setF] = useState({ vendorId: "", billNo: "", billDate: new Date().toISOString().slice(0, 10), dueDate: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10), amount: 0, gst: 0, notes: "" });
+
+  useEffect(() => {
+    if (open) setF({ vendorId: "", billNo: "", billDate: new Date().toISOString().slice(0, 10), dueDate: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10), amount: 0, gst: 0, notes: "" });
+  }, [open]);
+
+  const queryClient = useQueryClient();
+  const createMutation = useMutation({
+    mutationFn: createVendorBillApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendor-bills'] });
+      toast({ title: "Bill added successfully" });
+      onClose();
+    },
+    onError: (err: any) => toast({ title: "Failed to add bill", description: err.message, variant: "destructive" })
+  });
+
+  const submit = () => {
+    const vendor = fin.vendors.find(v => v.id === f.vendorId);
+    if (!vendor || !f.billNo || f.amount <= 0) { 
+      toast({ title: "Vendor, Bill #, and Amount are required", variant: "destructive" }); 
+      return; 
+    }
+    createMutation.mutate({
+      ...f,
+      vendorName: vendor.name,
+      billDate: new Date(f.billDate).toISOString(),
+      dueDate: new Date(f.dueDate).toISOString(),
+    });
+  };
+
   return (
     <FinanceDrawer open={open} onOpenChange={(o) => !o && onClose()} title="Add Vendor Bill">
       <div className="space-y-3">
@@ -1090,16 +1211,10 @@ function VendorBillFormDrawer({ open, onClose }: { open: boolean; onClose: () =>
           <div><Label>Amount</Label><Input type="number" value={f.amount || ""} onChange={e => setF({ ...f, amount: +e.target.value })} /></div>
           <div><Label>GST</Label><Input type="number" value={f.gst || ""} onChange={e => setF({ ...f, gst: +e.target.value })} /></div>
         </div>
-        <Button className="w-full" onClick={() => {
-          const vendor = fin.vendors.find(v => v.id === f.vendorId);
-          if (!vendor || !f.billNo || f.amount <= 0) { toast({ title: "Vendor + bill # + amount required", variant: "destructive" }); return; }
-          createVendorBill({
-            billNo: f.billNo, vendorId: vendor.id, vendorName: vendor.name,
-            billDate: new Date(f.billDate).toISOString(), dueDate: new Date(f.dueDate).toISOString(),
-            amount: f.amount, gst: f.gst, notes: f.notes,
-          } as any, currentUser?.id || "u0");
-          toast({ title: "Bill added" }); onClose();
-        }}>Save Bill</Button>
+        <div><Label>Notes</Label><Textarea value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} rows={2} /></div>
+        <Button className="w-full" onClick={submit} disabled={createMutation.isPending}>
+          {createMutation.isPending ? "Saving..." : "Save Bill"}
+        </Button>
       </div>
     </FinanceDrawer>
   );

@@ -3,6 +3,7 @@ import FinanceInvoice from '../models/FinanceInvoice.js';
 import FinanceExpense from '../models/FinanceExpense.js';
 import FinancePayment from '../models/FinancePayment.js';
 import PiTiMapping from '../models/PiTiMapping.js';
+import FinanceVendorBill from '../models/FinanceVendorBill.js';
 
 // @desc    Get all vendors
 // @route   GET /api/finance/vendors
@@ -309,3 +310,93 @@ export const getPiTiMappings = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// @desc    Link an existing standalone TI to a PI
+// @route   POST /api/finance/link-pi-ti
+// @access  Private/Admin,Accounts
+export const linkExistingTiToPi = async (req, res) => {
+  try {
+    const { piId, tiId, reason } = req.body;
+    
+    const pi = await FinanceInvoice.findById(piId);
+    if (!pi || pi.invoiceType !== 'PI') return res.status(404).json({ message: 'Proforma Invoice not found or invalid' });
+
+    const ti = await FinanceInvoice.findById(tiId);
+    if (!ti || ti.invoiceType !== 'TI') return res.status(404).json({ message: 'Tax Invoice not found or invalid' });
+
+    if (ti.linkedPiId) return res.status(400).json({ message: 'Tax Invoice is already linked to another PI' });
+
+    ti.linkedPiId = pi._id;
+    ti.notes = ti.notes ? `${ti.notes}\nLinked to PI: ${pi.invoiceNo} - ${reason}` : `Linked to PI: ${pi.invoiceNo} - ${reason}`;
+    await ti.save();
+
+    const mapping = new PiTiMapping({
+      piId: pi._id,
+      piNo: pi.invoiceNo,
+      tiId: ti._id,
+      tiNo: ti.invoiceNo,
+      studentId: pi.customerId,
+      studentName: pi.customerName,
+      linkedAmount: ti.totalAmount, // assume full amount linked
+      convertedBy: req.user._id,
+      mode: 'link',
+      reason,
+    });
+    await mapping.save();
+
+    res.status(200).json({ ti, mapping });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Get all vendor bills
+// @route   GET /api/finance/vendor-bills
+// @access  Private/Admin,Accounts
+export const getVendorBills = async (req, res) => {
+  try {
+    const bills = await FinanceVendorBill.find({});
+    res.json(bills);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Create a vendor bill
+// @route   POST /api/finance/vendor-bills
+// @access  Private/Admin,Accounts
+export const createVendorBill = async (req, res) => {
+  try {
+    const { amount, gst, ...rest } = req.body;
+    const bill = new FinanceVendorBill({
+      ...rest,
+      amount,
+      gst,
+      total: amount + (gst || 0),
+      recordedBy: req.user._id,
+    });
+    const createdBill = await bill.save();
+    res.status(201).json(createdBill);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Update/Pay a vendor bill
+// @route   PUT /api/finance/vendor-bills/:id
+// @access  Private/Admin,Accounts
+export const updateVendorBill = async (req, res) => {
+  try {
+    const bill = await FinanceVendorBill.findById(req.params.id);
+    if (bill) {
+      Object.assign(bill, req.body);
+      const updatedBill = await bill.save();
+      res.json(updatedBill);
+    } else {
+      res.status(404).json({ message: 'Bill not found' });
+    }
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+

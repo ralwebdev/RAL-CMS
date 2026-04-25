@@ -37,6 +37,12 @@ export const fetchVendors = async (): Promise<Vendor[]> => {
   return data;
 };
 
+export const fetchVendorBillsApi = async (): Promise<VendorBill[]> => {
+  const { data } = await axios.get(`${API_URL}/api/finance/vendor-bills`, getHeaders());
+  return data;
+};
+
+
 
 /* ───────── API MUTATIONS ───────── */
 
@@ -70,6 +76,17 @@ export const createVendorApi = async (vendor: any) => {
   return data;
 };
 
+export const createVendorBillApi = async (bill: any) => {
+  const { data } = await axios.post(`${API_URL}/api/finance/vendor-bills`, bill, getHeaders());
+  return data;
+};
+
+export const updateVendorBillApi = async ({ id, ...patch }: any) => {
+  const { data } = await axios.put(`${API_URL}/api/finance/vendor-bills/${id}`, patch, getHeaders());
+  return data;
+};
+
+
 export const convertPiToTiApi = async (payload: { piId: string; amount?: number; notes?: string }) => {
   const { data } = await axios.post(`${API_URL}/api/finance/convert-pi-to-ti`, payload, getHeaders());
   return data;
@@ -77,6 +94,11 @@ export const convertPiToTiApi = async (payload: { piId: string; amount?: number;
 
 export const fetchPiTiMappingsApi = async () => {
   const { data } = await axios.get(`${API_URL}/api/finance/pi-ti-mappings`, getHeaders());
+  return data;
+};
+
+export const linkExistingTiToPiApi = async (payload: { piId: string; tiId: string; reason: string }) => {
+  const { data } = await axios.post(`${API_URL}/api/finance/link-pi-ti`, payload, getHeaders());
   return data;
 };
 
@@ -145,8 +167,9 @@ export function recordPayment(input: any, by: string) { return {} as Payment; }
 export function createExpense(input: any, by: string) { return {} as Expense; }
 export function setExpenseStatus(id: string, status: any, by: string) {}
 export function createVendor(input: any, by: string) { return {} as Vendor; }
-export function createVendorBill(input: any, by: string) { return {} as VendorBill; }
-export function payVendorBill(id: string, amount: number, by: string) {}
+// export function createVendorBill(input: any, by: string) { return {} as VendorBill; }
+// export function payVendorBill(id: string, amount: number, by: string) {}
+
 export function createBudget(input: any, by: string) { return {} as Budget; }
 export function payEmi(id: string, mode: any, by: string) {}
 export function updateInvoice(id: string, patch: any, by: string) { return {} as Invoice; }

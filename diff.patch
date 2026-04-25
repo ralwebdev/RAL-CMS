@@ -1,0 +1,886 @@
+﻿diff --git a/Frontend/src/components/finance/AccountsModule.tsx b/tmp_remote_repo/src/components/finance/AccountsModule.tsx
+index affd766..1d0983a 100644
+--- a/Frontend/src/components/finance/AccountsModule.tsx
++++ b/tmp_remote_repo/src/components/finance/AccountsModule.tsx
+@@ -1,17 +1,14 @@
+ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+ import { useAuth } from "@/lib/auth-context";
+ import {
+-  getMockFinanceData, fetchInvoices, fetchExpenses, fetchPayments, fetchVendors, fetchPiTiMappingsApi,
+-  recomputeOverdue, autoSeedEmisForPartial,
+-  createInvoiceApi, createPaymentApi, updateExpenseApi, createExpenseApi, createVendorApi,
+-  createVendorBill, payVendorBill, createBudget, payEmi,
++  getFinance, subscribeFinance, recomputeOverdue,
++  createInvoice, recordPayment, createExpense, setExpenseStatus,
++  createVendor, createVendorBill, payVendorBill, createBudget, payEmi, autoSeedEmisForPartial,
+ } from "@/lib/finance-store";
+-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+ import {
+   Invoice, Payment, Expense, Vendor, VendorBill, Budget, EmiSchedule,
+   RevenueStream, ExpenseCategory, GstType, PaymentMode, ExpenseStatus,
+ } from "@/lib/finance-types";
+-import { ApprovalRequest } from "@/lib/approvals";
+ import { Card } from "@/components/ui/card";
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+ import { Button } from "@/components/ui/button";
+@@ -36,8 +33,7 @@ import { FinanceTable, Column } from "./FinanceTable";
+ import { FinanceDrawer } from "./FinanceDrawer";
+ import { buildVouchers, vouchersToCsv, vouchersToJson, downloadFile, type TxnType, type DateRange } from "@/lib/tally-export";
+ import { submitExpenseForApproval, approvalForExpense, syncApprovalToExpense, tierForAmount } from "@/lib/expense-approval-bridge";
+-import { approvalStore, canApprove as canActOnApproval } from "@/lib/approvals";
+-import { fetchApprovals, actOnApprovalApi } from "@/lib/alliance-data";
++import { approvalStore } from "@/lib/approvals";
+ import type { UserRole } from "@/lib/types";
+ import { InvoiceDispatchDialog } from "./InvoiceDispatchDialog";
+ import {
+@@ -51,35 +47,26 @@ import { computeBreakup, detectIntraState, validateGstInput, type GstInputMode }
+ import { InvoiceEditDialog } from "./InvoiceEditDialog";
+ import { getInvoiceEdits, subscribeInvoiceEdits, HIGH_VALUE_THRESHOLD, type InvoiceEditEntry } from "@/lib/invoice-edit-store";
+ import { ProjectionsTab } from "./ProjectionsTab";
++import { ReportsTab } from "./ReportsTab";
+ import { VerificationsTab, VerifiedPaymentsTab, CollectionReportsTab } from "./CollectionControlTabs";
+ import { CollectionsLogTab, InvoiceRequestsTab } from "./InvoiceRequestTabs";
+ import { BillingChart } from "@/components/billing/BillingChart";
+-import { computeEmiMetrics, computeStudentRisk } from "@/lib/revenue-projection";
++import { AdminBillingTab } from "./AdminBillingTab";
++import { computeEmiMetrics, computeStudentRisk, computePiTiSplit, computePiTiMonthlyTrend } from "@/lib/revenue-projection";
++import { PiToTiConvertDialog } from "./PiToTiConvertDialog";
++import { getPiTiMappings, subscribePiTi, type PiTiMapping } from "@/lib/pi-ti-store";
++import { piOpenBalance, piConvertedAmount } from "@/lib/finance-store";
++import { scanPiDueAlerts } from "@/lib/pi-ti-notifications";
++import { ArrowRight } from "lucide-react";
+ 
+ const CHART_COLORS = ["hsl(var(--primary))", "#1A1A1A", "#10b981", "#f59e0b", "#6366f1", "#ec4899", "#0ea5e9"];
+ 
+ function useFinance() {
+-  const invoicesQuery = useQuery({ queryKey: ['invoices'], queryFn: fetchInvoices });
+-  const expensesQuery = useQuery({ queryKey: ['expenses'], queryFn: fetchExpenses });
+-  const paymentsQuery = useQuery({ queryKey: ['payments'], queryFn: fetchPayments });
+-  const vendorsQuery = useQuery({ queryKey: ['vendors'], queryFn: fetchVendors });
+-  const approvalsQuery = useQuery({ queryKey: ['approvals'], queryFn: fetchApprovals });
+-  const piTiMappingsQuery = useQuery({ queryKey: ['piTiMappings'], queryFn: fetchPiTiMappingsApi });
+-
+-  const mockData = useMemo(() => getMockFinanceData(), []);
+-
+-  const isLoading = invoicesQuery.isLoading || expensesQuery.isLoading || paymentsQuery.isLoading || vendorsQuery.isLoading || piTiMappingsQuery.isLoading;
+-
+-  return {
+-    invoices: invoicesQuery.data || [],
+-    expenses: expensesQuery.data || [],
+-    payments: paymentsQuery.data || [],
+-    vendors: vendorsQuery.data || [],
+-    approvals: (approvalsQuery.data || []) as ApprovalRequest[],
+-    piTiMappings: piTiMappingsQuery.data || [],
+-    ...mockData,
+-    isLoading: isLoading || approvalsQuery.isLoading
+-  };
++  return useSyncExternalStore(
++    (l) => subscribeFinance(l),
++    () => getFinance(),
++    () => getFinance(),
++  );
+ }
+ 
+ function useDispatchList() {
+@@ -116,6 +103,7 @@ const ALL_TABS: { id: string; label: string; roles: RoleScope[] }[] = [
+   { id: "profit", label: "Profitability", roles: ["owner", "manager"] },
+   { id: "cashflow", label: "Cash Flow", roles: ["owner"] },
+   { id: "gst", label: "GST", roles: ["owner", "manager"] },
++  { id: "reports", label: "Reports", roles: ["owner", "manager"] },
+   { id: "collection_reports", label: "Collection Reports", roles: ["owner", "manager"] },
+   { id: "exports", label: "Exports", roles: ["owner", "manager"] },
+ ];
+@@ -123,19 +111,16 @@ const ALL_TABS: { id: string; label: string; roles: RoleScope[] }[] = [
+ export function AccountsModule() {
+   const fin = useFinance();
+   const { currentUser } = useAuth();
++  const isAdmin = currentUser?.role === "admin";
+   const role = scope(currentUser?.role || "accounts_executive");
+   const tabs = ALL_TABS.filter(t => t.roles.includes(role));
+   const [tab, setTab] = useState(tabs[0].id);
+ 
+-  useEffect(() => { recomputeOverdue(); autoSeedEmisForPartial(); }, []);
++  useEffect(() => { recomputeOverdue(); autoSeedEmisForPartial(); scanPiDueAlerts(getFinance().invoices); }, []);
+ 
+-  if (fin.isLoading) {
+-    return (
+-      <div className="flex h-[400px] items-center justify-center">
+-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+-      </div>
+-    );
+-  }
++  // Admin gets a focused, single-tab Verification Control Center ΓÇö
++  // no duplicate Billing Chart, no invoice issuance surfaces.
++  if (isAdmin) return <AdminBillingTab />;
+ 
+   return (
+     <div className="space-y-6">
+@@ -163,7 +148,7 @@ export function AccountsModule() {
+         <TabsContent value="dashboard" className="mt-4"><DashboardTab onJump={setTab} /></TabsContent>
+         <TabsContent value="billing_chart" className="mt-4"><BillingChart /></TabsContent>
+         <TabsContent value="revenue" className="mt-4"><RevenueTab /></TabsContent>
+-        <TabsContent value="projections" className="mt-4"><ProjectionsTab data={fin} /></TabsContent>
++        <TabsContent value="projections" className="mt-4"><ProjectionsTab /></TabsContent>
+         <TabsContent value="billing" className="mt-4"><BillingTab role={role} /></TabsContent>
+         <TabsContent value="collections_log" className="mt-4"><CollectionsLogTab role={role} /></TabsContent>
+         <TabsContent value="invoice_requests" className="mt-4"><InvoiceRequestsTab role={role} /></TabsContent>
+@@ -171,13 +156,14 @@ export function AccountsModule() {
+         <TabsContent value="verified_payments" className="mt-4"><VerifiedPaymentsTab role={role} /></TabsContent>
+         <TabsContent value="collections" className="mt-4"><CollectionsTab role={role} /></TabsContent>
+         <TabsContent value="emi" className="mt-4"><EmiTab /></TabsContent>
+-        <TabsContent value="expenses" className="mt-4"><ExpensesTab role={role} approvals={fin.approvals} /></TabsContent>
++        <TabsContent value="expenses" className="mt-4"><ExpensesTab role={role} /></TabsContent>
+         <TabsContent value="vendors" className="mt-4"><VendorsTab role={role} /></TabsContent>
+         <TabsContent value="budgets" className="mt-4"><BudgetsTab /></TabsContent>
+         <TabsContent value="profit" className="mt-4"><ProfitTab /></TabsContent>
+         <TabsContent value="cashflow" className="mt-4"><CashflowTab /></TabsContent>
+         <TabsContent value="gst" className="mt-4"><GstTab /></TabsContent>
+-        <TabsContent value="collection_reports" className="mt-4"><CollectionReportsTab invoices={fin.invoices} /></TabsContent>
++        <TabsContent value="reports" className="mt-4"><ReportsTab /></TabsContent>
++        <TabsContent value="collection_reports" className="mt-4"><CollectionReportsTab /></TabsContent>
+         <TabsContent value="exports" className="mt-4"><ExportsTab /></TabsContent>
+       </Tabs>
+     </div>
+@@ -192,23 +178,19 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
+   const editsToday = edits.filter(e => new Date(e.at).toDateString() === todayKey).length;
+   const highValueChanges = edits.filter(e => e.highValue).length;
+   const revisedBilling = edits.reduce((s, e) => s + e.amountDelta, 0);
+-  const emiMetrics = computeEmiMetrics(fin.emiSchedules || []);
+-  const riskRows = computeStudentRisk(fin.invoices || [], fin.emiSchedules || []);
+-  const riskAtStake = riskRows.filter(r => r.riskLevel !== "low").reduce((s, r) => s + (r.balanceDue || 0), 0);
+-  const totalBilled = fin.invoices.reduce((s, i) => s + (i.total ?? (i as any).totalAmount ?? 0), 0);
+-  const totalCollected = fin.payments.reduce((s, p) => s + (p.amount ?? 0), 0);
+-  const outstanding = fin.invoices.reduce((s, i) => {
+-    const it = i.total ?? (i as any).totalAmount ?? 0;
+-    const ip = i.amountPaid ?? 0;
+-    return s + (it - ip);
+-  }, 0);
+-  const totalExpenses = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + (e.total ?? 0), 0);
++  const emiMetrics = computeEmiMetrics(fin.emiSchedules);
++  const riskRows = computeStudentRisk(fin.invoices, fin.emiSchedules);
++  const riskAtStake = riskRows.filter(r => r.riskLevel !== "low").reduce((s, r) => s + r.balanceDue, 0);
++  const totalBilled = fin.invoices.reduce((s, i) => s + i.total, 0);
++  const totalCollected = fin.payments.reduce((s, p) => s + p.amount, 0);
++  const outstanding = fin.invoices.reduce((s, i) => s + (i.total - i.amountPaid), 0);
++  const totalExpenses = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.total, 0);
+   const netProfit = totalCollected - totalExpenses;
+-  const gstOutput = fin.invoices.filter(i => i.invoiceType === 'TI').reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
++  const gstOutput = fin.invoices.reduce((s, i) => s + i.cgst + i.sgst + i.igst, 0);
+   const gstInput = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.gst, 0);
+   const gstLiability = Math.max(0, gstOutput - gstInput);
+ 
+-  const vendorPayables = fin.vendorBills.filter(b => b.status !== "Paid").reduce((s, b) => s + ((b.total ?? 0) - (b.paid ?? 0)), 0);
++  const vendorPayables = fin.vendorBills.filter(b => b.status !== "Paid").reduce((s, b) => s + (b.total - b.paid), 0);
+   const emiOverdue = fin.emiSchedules.filter(e => e.status === "Overdue").length;
+   const collectionEff = totalBilled > 0 ? (totalCollected / totalBilled * 100) : 0;
+   const dailyBurn = totalExpenses / 30 || 1;
+@@ -223,18 +205,16 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
+   const trend = useMemo(() => {
+     const months: Record<string, { name: string; revenue: number; expense: number }> = {};
+     fin.payments.forEach(p => {
+-      if (!p.paidOn) return;
+       const d = new Date(p.paidOn);
+       const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+       months[k] = months[k] || { name: k, revenue: 0, expense: 0 };
+-      months[k].revenue += (p.amount ?? 0);
++      months[k].revenue += p.amount;
+     });
+     fin.expenses.filter(e => e.status === "Approved").forEach(e => {
+-      if (!e.spendDate) return;
+       const d = new Date(e.spendDate);
+       const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+       months[k] = months[k] || { name: k, revenue: 0, expense: 0 };
+-      months[k].expense += (e.total ?? 0);
++      months[k].expense += e.total;
+     });
+     return Object.values(months).sort((a, b) => a.name.localeCompare(b.name));
+   }, [fin]);
+@@ -243,10 +223,8 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
+     const buckets = { "0-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
+     const now = Date.now();
+     fin.invoices.forEach(i => {
+-      const it = i.total ?? (i as any).totalAmount ?? 0;
+-      const ip = i.amountPaid ?? 0;
+-      const due = it - ip;
+-      if (due <= 0 || !i.dueDate) return;
++      const due = i.total - i.amountPaid;
++      if (due <= 0) return;
+       const days = Math.floor((now - new Date(i.dueDate).getTime()) / 86400000);
+       if (days < 30) buckets["0-30"] += due;
+       else if (days < 60) buckets["31-60"] += due;
+@@ -305,6 +283,8 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
+         <FinanceKpi label="Risk Revenue" value={fmtINR(riskAtStake)} hint={`${riskRows.filter(r => r.riskLevel !== "low").length} students`} tone={riskAtStake > 0 ? "warning" : "success"} icon={<ShieldCheck className="h-4 w-4" />} onClick={() => onJump("projections")} />
+       </div>
+ 
++      <PiTiDashboardSection onJump={onJump} />
++
+       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+         <Card className="p-4 lg:col-span-2">
+           <h3 className="text-sm font-semibold mb-3">Revenue vs Expense Trend</h3>
+@@ -348,6 +328,60 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
+   );
+ }
+ 
++/* ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ PI / TI Dashboard split ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
++function PiTiDashboardSection({ onJump }: { onJump: (id: string) => void }) {
++  const fin = useFinance();
++  const split = useMemo(
++    () => computePiTiSplit(fin.invoices, fin.payments, piOpenBalance),
++    [fin.invoices, fin.payments],
++  );
++  const trend = useMemo(
++    () => computePiTiMonthlyTrend(fin.invoices, fin.payments, 6),
++    [fin.invoices, fin.payments],
++  );
++
++  return (
++    <div className="space-y-4">
++      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
++        <FinanceKpi label="Receivables (PI)" value={fmtINR(split.piReceivableOpen)} hint="Open Proforma" tone="warning" icon={<FileText className="h-4 w-4" />} onClick={() => onJump("billing")} />
++        <FinanceKpi label="Realized Revenue (TI)" value={fmtINR(split.realizedRevenueBilled)} hint={`Collected ${fmtINR(split.realizedRevenueCollected)}`} tone="success" icon={<Receipt className="h-4 w-4" />} onClick={() => onJump("billing")} />
++        <FinanceKpi label="PIΓåÆTI Conversion" value={`${split.piToTiConversionPct}%`} hint={`${fmtINR(split.piConverted)} of ${fmtINR(split.piRaised)}`} tone={split.piToTiConversionPct >= 60 ? "success" : "warning"} onClick={() => onJump("reports")} />
++        <FinanceKpi label="GST Liability (TI)" value={fmtINR(split.gstFromTi)} hint="From TI only" tone="primary" icon={<BadgePercent className="h-4 w-4" />} onClick={() => onJump("gst")} />
++      </div>
++
++      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
++        <Card className="p-4 lg:col-span-2">
++          <h3 className="text-sm font-semibold mb-3">PI vs TI Monthly Trend</h3>
++          <ResponsiveContainer width="100%" height={240}>
++            <BarChart data={trend}>
++              <CartesianGrid strokeDasharray="3 3" opacity={0.2} stroke="hsl(var(--border))" />
++              <XAxis dataKey="label" fontSize={11} tick={{ fill: "hsl(var(--muted-foreground))" }} />
++              <YAxis fontSize={11} tick={{ fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => v >= 100000 ? `${(v/100000).toFixed(0)}L` : `${v/1000}k`} />
++              <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} formatter={(v: number) => fmtINR(v)} />
++              <Legend wrapperStyle={{ fontSize: 11 }} />
++              <Bar dataKey="piRaised" name="PI Raised" fill="hsl(var(--warning))" radius={[6, 6, 0, 0]} />
++              <Bar dataKey="tiGenerated" name="TI Generated" fill="hsl(var(--success))" radius={[6, 6, 0, 0]} />
++              <Bar dataKey="collected" name="TI Collected" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
++            </BarChart>
++          </ResponsiveContainer>
++        </Card>
++        <Card className="p-4">
++          <h3 className="text-sm font-semibold mb-3">Receivable Aging (PI only)</h3>
++          <ResponsiveContainer width="100%" height={240}>
++            <BarChart data={split.piAgingBuckets}>
++              <CartesianGrid strokeDasharray="3 3" opacity={0.2} stroke="hsl(var(--border))" />
++              <XAxis dataKey="bucket" fontSize={11} tick={{ fill: "hsl(var(--muted-foreground))" }} />
++              <YAxis fontSize={11} tick={{ fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => v >= 100000 ? `${(v/100000).toFixed(0)}L` : `${v/1000}k`} />
++              <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} formatter={(v: number) => fmtINR(v)} />
++              <Bar dataKey="amount" fill="hsl(var(--warning))" radius={[6, 6, 0, 0]} />
++            </BarChart>
++          </ResponsiveContainer>
++        </Card>
++      </div>
++    </div>
++  );
++}
++
+ function BudgetVariance() {
+   const fin = useFinance();
+   const planned = fin.budgets.reduce((s, b) => s + b.plannedAmount, 0);
+@@ -393,10 +427,17 @@ function RevenueTab() {
+   );
+ }
+ 
+-/* ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ Billing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
++/* ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ Billing (PI / TI unified) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
++type BillingFilter = "all" | "pi" | "ti" | "open_pi" | "converted_pi" | "today_ti";
++
++function usePiTi() {
++  return useSyncExternalStore(subscribePiTi, getPiTiMappings, getPiTiMappings);
++}
++
+ function BillingTab({ role }: { role: RoleScope }) {
+   const fin = useFinance();
+   const dispatches = useDispatchList();
++  const mappings = usePiTi();
+   const { currentUser } = useAuth();
+   const { toast } = useToast();
+   const [open, setOpen] = useState(false);
+@@ -405,6 +446,8 @@ function BillingTab({ role }: { role: RoleScope }) {
+   const [view, setView] = useState<Invoice | null>(null);
+   const [dispatchInv, setDispatchInv] = useState<Invoice | null>(null);
+   const [editInv, setEditInv] = useState<Invoice | null>(null);
++  const [convertPi, setConvertPi] = useState<Invoice | null>(null);
++  const [filter, setFilter] = useState<BillingFilter>("all");
+ 
+   const dispatchByInv = useMemo(() => {
+     const m = new Map<string, InvoiceDispatch>();
+@@ -415,18 +458,33 @@ function BillingTab({ role }: { role: RoleScope }) {
+   const canGenerate = role === "owner" || role === "manager" || currentUser?.role === "accounts_executive";
+   const canBulkSend = role === "owner" || role === "manager";
+   const canEdit = role === "owner" || role === "manager";
++  const canConvert = role === "owner" || role === "manager";
+ 
+-  const visibleInvoices = useMemo(() => {
++  const baseVisible = useMemo(() => {
+     if (role === "owner" || role === "manager") return fin.invoices;
+     const myId = currentUser?.id;
+-    // Executives see what they created OR all student admissions (since they are auto-generated by Admin)
+-    return fin.invoices.filter(i => 
+-      i.createdBy === myId || 
+-      i.revenueStream === "Student Admissions" ||
+-      dispatchByInv.get(i.id)?.generatedBy === myId
+-    );
++    return fin.invoices.filter(i => i.createdBy === myId || dispatchByInv.get(i.id)?.generatedBy === myId);
+   }, [fin.invoices, role, currentUser?.id, dispatchByInv]);
+ 
++  const todayKey = new Date().toDateString();
++  const visibleInvoices = useMemo(() => {
++    const t = (i: Invoice) => i.invoiceType ?? "PI";
++    switch (filter) {
++      case "pi":            return baseVisible.filter(i => t(i) === "PI");
++      case "ti":            return baseVisible.filter(i => t(i) === "TI");
++      case "open_pi":       return baseVisible.filter(i => t(i) === "PI" && piOpenBalance(i.id) > 0 && i.status !== "Cancelled" && i.status !== "Converted");
++      case "converted_pi":  return baseVisible.filter(i => t(i) === "PI" && (i.convertedTiIds?.length ?? 0) > 0);
++      case "today_ti":      return baseVisible.filter(i => t(i) === "TI" && new Date(i.issueDate).toDateString() === todayKey);
++      default:              return baseVisible;
++    }
++  }, [baseVisible, filter, todayKey]);
++
++  const piMap = useMemo(() => {
++    const m = new Map<string, Invoice>();
++    fin.invoices.forEach(i => m.set(i.id, i));
++    return m;
++  }, [fin.invoices]);
++
+   const bulkSendOverdue = () => {
+     const targets = visibleInvoices.filter(i => i.status === "Overdue");
+     targets.forEach(i => {
+@@ -441,28 +499,53 @@ function BillingTab({ role }: { role: RoleScope }) {
+   };
+ 
+   const cols: Column<Invoice>[] = [
++    {
++      key: "type", header: "Type",
++      render: r => {
++        const t = r.invoiceType ?? "PI";
++        return t === "TI"
++          ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700">TI</span>
++          : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">PI</span>;
++      },
++      exportValue: r => r.invoiceType ?? "PI",
++    },
+     { key: "no", header: "Invoice #", render: r => <span className="font-mono text-xs">{r.invoiceNo}</span>, sortValue: r => r.invoiceNo, exportValue: r => r.invoiceNo },
+-    { key: "cust", header: "Customer", render: r => <div><div className="font-medium text-sm">{r.customerName}</div><div className="text-[11px] text-muted-foreground">{r.customerType}</div></div>, sortValue: r => r.customerName, exportValue: r => r.customerName },
+-    { key: "stream", header: "Stream", render: r => <span className="text-xs">{r.revenueStream}</span>, exportValue: r => r.revenueStream },
+-    { key: "issue", header: "Issued", render: r => fmtDate(r.issueDate), sortValue: r => r.issueDate, exportValue: r => fmtDate(r.issueDate) },
+-    { key: "due", header: "Due", render: r => fmtDate(r.dueDate), sortValue: r => r.dueDate, exportValue: r => fmtDate(r.dueDate) },
+-    { key: "total", header: "Total", render: r => <span className="font-semibold tabular-nums">{fmtINR(r.total)}</span>, sortValue: r => r.total, exportValue: r => r.total },
+-    { key: "paid", header: "Paid", render: r => <span className="tabular-nums text-emerald-700">{fmtINR(r.amountPaid)}</span>, sortValue: r => r.amountPaid, exportValue: r => r.amountPaid },
+-    { key: "status", header: "Status", render: r => <StatusPill status={r.status} tone={statusTone(r.status)} />, exportValue: r => r.status },
+     {
+-      key: "dispatch", header: "Dispatch",
++      key: "ref", header: "Linked",
+       render: r => {
+-        const d = dispatchByInv.get(r.id);
+-        if (!d) return <span className="text-[11px] text-muted-foreground">ΓÇö</span>;
+-        const tone = d.status.startsWith("sent") ? "success" : d.status === "failed" ? "destructive" : d.status === "pending_approval" ? "warning" : "primary";
+-        return <StatusPill status={d.status.replace(/_/g, " ")} tone={tone} />;
++        if (r.invoiceType === "TI" && r.linkedPiId) {
++          const pi = piMap.get(r.linkedPiId);
++          return <span className="text-[11px] text-muted-foreground font-mono">Γå│ {pi?.invoiceNo ?? "ΓÇö"}</span>;
++        }
++        if (r.invoiceType === "PI" && (r.convertedTiIds?.length ?? 0) > 0) {
++          return <span className="text-[11px] text-emerald-700">{r.convertedTiIds!.length} TI{r.convertedTiIds!.length > 1 ? "s" : ""}</span>;
++        }
++        return <span className="text-[11px] text-muted-foreground">ΓÇö</span>;
+       },
+-      exportValue: r => dispatchByInv.get(r.id)?.status || "",
++      exportValue: r => r.linkedPiId ? piMap.get(r.linkedPiId)?.invoiceNo ?? "" : (r.convertedTiIds?.length ? `${r.convertedTiIds.length} TIs` : ""),
+     },
++    { key: "cust", header: "Recipient", render: r => <div><div className="font-medium text-sm">{r.customerName}</div><div className="text-[11px] text-muted-foreground">{r.customerType}</div></div>, sortValue: r => r.customerName, exportValue: r => r.customerName },
++    { key: "stream", header: "Stream", render: r => <span className="text-xs">{r.revenueStream}</span>, exportValue: r => r.revenueStream },
++    { key: "issue", header: "Issued", render: r => fmtDate(r.issueDate), sortValue: r => r.issueDate, exportValue: r => fmtDate(r.issueDate) },
++    {
++      key: "due", header: "Due",
++      render: r => r.invoiceType === "TI"
++        ? <span className="text-[11px] text-muted-foreground">ΓÇö</span>
++        : fmtDate(r.dueDate),
++      sortValue: r => r.dueDate, exportValue: r => r.invoiceType === "TI" ? "" : fmtDate(r.dueDate),
++    },
++    { key: "total", header: "Amount", render: r => <span className="font-semibold tabular-nums">{fmtINR(r.total)}</span>, sortValue: r => r.total, exportValue: r => r.total },
++    { key: "paid", header: "Paid", render: r => <span className="tabular-nums text-emerald-700">{fmtINR(r.amountPaid)}</span>, sortValue: r => r.amountPaid, exportValue: r => r.amountPaid },
++    { key: "status", header: "Status", render: r => <StatusPill status={r.status} tone={statusTone(r.status)} />, exportValue: r => r.status },
+     {
+       key: "actions", header: "",
+       render: r => (
+         <div className="flex gap-1 justify-end">
++          {canConvert && r.invoiceType === "PI" && r.status !== "Converted" && r.status !== "Cancelled" && piOpenBalance(r.id) > 0 && (
++            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setConvertPi(r); }} className="gap-1 h-7 text-[11px]" title="Convert PI to TI">
++              <ArrowRight className="h-3 w-3" /> Convert
++            </Button>
++          )}
+           {canEdit && (
+             <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEditInv(r); }} className="gap-1 h-7 text-[11px]" title="Edit invoice">
+               <Pencil className="h-3 w-3" />
+@@ -476,23 +559,52 @@ function BillingTab({ role }: { role: RoleScope }) {
+     },
+   ];
+ 
+-  const todayKey = new Date().toDateString();
+-  const generatedToday = dispatches.filter(d => new Date(d.generatedAt).toDateString() === todayKey).length;
+-  const sentToday = dispatches.filter(d => d.lastSentAt && new Date(d.lastSentAt).toDateString() === todayKey).length;
+-  const failed = dispatches.filter(d => d.status === "failed").length;
+-  const pendingApproval = dispatches.filter(d => d.status === "pending_approval").length;
+-  const sentCount = dispatches.filter(d => d.status.startsWith("sent")).length;
+-  const successRate = dispatches.length ? Math.round((sentCount / dispatches.length) * 100) : 0;
++  // PI / TI billing KPIs
++  const piList = baseVisible.filter(i => (i.invoiceType ?? "PI") === "PI" && i.status !== "Cancelled");
++  const tiList = baseVisible.filter(i => i.invoiceType === "TI" && i.status !== "Cancelled");
++  const piOutstanding = piList.reduce((s, p) => s + piOpenBalance(p.id), 0);
++  const piDueToday = piList.filter(p => piOpenBalance(p.id) > 0 && new Date(p.dueDate).toDateString() === todayKey).length;
++  const piOverdue = piList.filter(p => piOpenBalance(p.id) > 0 && new Date(p.dueDate).getTime() < Date.now()).length;
++  const tiToday = tiList.filter(t => new Date(t.issueDate).toDateString() === todayKey).length;
++  const piTotalRaised = piList.reduce((s, p) => s + p.total, 0);
++  const piConverted = piList.reduce((s, p) => s + piConvertedAmount(p.id), 0);
++  const conversionPct = piTotalRaised > 0 ? Math.round((piConverted / piTotalRaised) * 100) : 0;
++  const failedMappings = mappings.filter(m => m.linkedAmount <= 0).length;
++  const monthKey = new Date().toISOString().slice(0, 7);
++  const gstFromTi = tiList
++    .filter(t => t.issueDate.startsWith(monthKey))
++    .reduce((s, t) => s + t.cgst + t.sgst + t.igst, 0);
+ 
+   return (
+     <div className="space-y-3">
+-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+-        <FinanceKpi label="Generated Today" value={generatedToday} tone="primary" icon={<FileText className="h-4 w-4" />} />
+-        <FinanceKpi label="Sent Today" value={sentToday} tone="success" icon={<Send className="h-4 w-4" />} />
+-        <FinanceKpi label="Failed" value={failed} tone={failed > 0 ? "destructive" : "default"} icon={<AlertTriangle className="h-4 w-4" />} />
+-        <FinanceKpi label="Pending Approval" value={pendingApproval} tone={pendingApproval > 0 ? "warning" : "default"} icon={<ShieldCheck className="h-4 w-4" />} />
+-        <FinanceKpi label="Success Rate" value={`${successRate}%`} tone={successRate >= 80 ? "success" : "warning"} />
++      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
++        <FinanceKpi label="PI Outstanding" value={fmtINR(piOutstanding)} hint={`${piList.filter(p => piOpenBalance(p.id) > 0).length} open`} tone="warning" icon={<FileText className="h-4 w-4" />} onClick={() => setFilter("open_pi")} />
++        <FinanceKpi label="PI Due Today" value={piDueToday} tone={piDueToday > 0 ? "warning" : "default"} onClick={() => setFilter("open_pi")} />
++        <FinanceKpi label="PI Overdue" value={piOverdue} tone={piOverdue > 0 ? "destructive" : "success"} icon={<AlertTriangle className="h-4 w-4" />} onClick={() => setFilter("open_pi")} />
++        <FinanceKpi label="TI Today" value={tiToday} tone="success" icon={<Receipt className="h-4 w-4" />} onClick={() => setFilter("today_ti")} />
++        <FinanceKpi label="PIΓåÆTI Conversion" value={`${conversionPct}%`} tone={conversionPct >= 60 ? "success" : "warning"} onClick={() => setFilter("converted_pi")} />
++        <FinanceKpi label="GST from TI (mo)" value={fmtINR(gstFromTi)} hint="This month" tone="primary" icon={<BadgePercent className="h-4 w-4" />} />
++        <FinanceKpi label="Mappings" value={mappings.length} hint={failedMappings > 0 ? `${failedMappings} failed` : "all healthy"} tone={failedMappings > 0 ? "destructive" : "default"} icon={<ArrowRight className="h-4 w-4" />} />
++        <FinanceKpi label="Total Invoices" value={baseVisible.length} hint={`${piList.length} PI ┬╖ ${tiList.length} TI`} tone="default" />
+       </div>
++
++      <div className="flex flex-wrap gap-1.5 items-center">
++        <span className="text-xs text-muted-foreground mr-1">Filter:</span>
++        {([
++          ["all", "All"], ["pi", "PI only"], ["ti", "TI only"],
++          ["open_pi", "Open PI"], ["converted_pi", "Converted PI"], ["today_ti", "Today's TI"],
++        ] as [BillingFilter, string][]).map(([k, label]) => (
++          <button
++            key={k} onClick={() => setFilter(k)}
++            className={`text-[11px] px-2 py-1 rounded border transition ${
++              filter === k
++                ? "bg-primary text-primary-foreground border-primary"
++                : "bg-background hover:bg-muted border-border"
++            }`}
++          >{label}</button>
++        ))}
++      </div>
++
+       <FinanceTable<Invoice>
+         rows={visibleInvoices}
+         columns={cols}
+@@ -503,7 +615,7 @@ function BillingTab({ role }: { role: RoleScope }) {
+           <div className="flex flex-wrap gap-2">
+             {canBulkSend && (
+               <Button size="sm" variant="outline" onClick={bulkSendOverdue} className="gap-1.5">
+-                <Mail className="h-3.5 w-3.5" /> Bulk: Overdue Reminders
++                <Mail className="h-3.5 w-3.5" /> Bulk: PI Reminders
+               </Button>
+             )}
+             {canGenerate && (
+@@ -512,11 +624,13 @@ function BillingTab({ role }: { role: RoleScope }) {
+               </Button>
+             )}
+             {canGenerate && (
+-              <Button size="sm" variant="outline" onClick={() => setQuickOpen(true)} className="gap-1.5">
+-                <Plus className="h-3.5 w-3.5" /> Quick Invoice
++              <Button size="sm" variant="outline" onClick={() => setQuickOpen(true)} className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50" title="Use TI only after payment is received">
++                <Plus className="h-3.5 w-3.5" /> Create Tax Invoice
+               </Button>
+             )}
+-            <Button size="sm" onClick={() => setOpen(true)} className="gap-1.5"><Plus className="h-3.5 w-3.5" /> Create Invoice</Button>
++            <Button size="sm" onClick={() => setOpen(true)} className="gap-1.5" title="Use PI for dues / receivables before payment">
++              <Plus className="h-3.5 w-3.5" /> Create Proforma Invoice
++            </Button>
+           </div>
+         }
+       />
+@@ -526,6 +640,7 @@ function BillingTab({ role }: { role: RoleScope }) {
+       <InvoiceViewDrawer invoice={view} onClose={() => setView(null)} />
+       <InvoiceDispatchDialog invoice={dispatchInv} open={!!dispatchInv} onClose={() => setDispatchInv(null)} />
+       <InvoiceEditDialog invoice={editInv} open={!!editInv} onClose={() => setEditInv(null)} />
++      <PiToTiConvertDialog pi={convertPi} open={!!convertPi} onClose={() => setConvertPi(null)} />
+     </div>
+   );
+ }
+@@ -543,7 +658,6 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
+     gstin: "", notes: "",
+     mode: "gross_inclusive" as GstInputMode,
+     intra: true, intraOverridden: false,
+-    invoiceType: "TI" as "PI" | "TI",
+   });
+ 
+   useEffect(() => {
+@@ -557,25 +671,13 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
+   const effectiveRate = f.gstType === "Exempt" ? 0 : f.gstRate;
+   const breakup = computeBreakup(Math.max(0, f.amount - f.discount), effectiveRate, f.mode, f.intra);
+ 
+-  const queryClient = useQueryClient();
+-  const createMutation = useMutation({
+-    mutationFn: createInvoiceApi,
+-    onSuccess: () => {
+-      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+-      toast({ title: "Invoice issued successfully" });
+-      onClose();
+-    },
+-    onError: (error: any) => {
+-      toast({ title: "Failed to issue invoice", description: error.response?.data?.message || error.message, variant: "destructive" });
+-    }
+-  });
+-
+   const submit = () => {
+-    if (!f.customerName.trim()) { toast({ title: "Student record not found.", description: "Party (student / institution) name is required.", variant: "destructive" }); return; }
++    if (!f.customerName.trim()) { toast({ title: "Recipient name required.", variant: "destructive" }); return; }
++    if (!f.dueDate) { toast({ title: "PI due date is required.", variant: "destructive" }); return; }
+     const v = validateGstInput(f.amount, effectiveRate);
+     if (!v.ok) { toast({ title: v.error || "Invalid amount", variant: "destructive" }); return; }
+-    
+-    createMutation.mutate({
++    const inv = createInvoice({
++      invoiceType: "PI",
+       customerId: "c_" + Math.random().toString(36).slice(2, 6),
+       customerName: f.customerName.trim(), customerType: f.customerType,
+       revenueStream: f.revenueStream, programName: f.programName,
+@@ -583,18 +685,17 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
+       dueDate: new Date(f.dueDate).toISOString(),
+       subtotal: breakup.taxable, discount: 0,
+       gstType: f.gstType, gstRate: effectiveRate, gstin: f.gstin, notes: f.notes,
+-      cgst: breakup.cgst, sgst: breakup.sgst, igst: breakup.igst,
+-      totalAmount: breakup.taxable + breakup.gstAmount,
+-      invoiceType: f.invoiceType,
+-      createdBy: currentUser?.id || "u0",
+-    });
++    } as any, currentUser?.id || "u0");
++    inv.cgst = breakup.cgst; inv.sgst = breakup.sgst; inv.igst = breakup.igst;
++    toast({ title: "Proforma Invoice issued", description: `${inv.invoiceNo} ┬╖ ${fmtINR(inv.total)} ΓÇö Receivable, no GST liability yet.` });
++    onClose();
+   };
+ 
+   return (
+-    <FinanceDrawer open={open} onOpenChange={(o) => !o && onClose()} title="Create Invoice" description="Enter gross fee ΓÇö taxable & GST split automatically.">
++    <FinanceDrawer open={open} onOpenChange={(o) => !o && onClose()} title="Create Proforma Invoice (PI)" description="Use PI for dues / receivables before payment. Amount goes to receivables, not collected revenue.">
+       <div className="space-y-3">
+         <div className="grid grid-cols-2 gap-3">
+-          <div><Label>Customer Name</Label><Input value={f.customerName} onChange={e => setF({ ...f, customerName: e.target.value })} /></div>
++          <div><Label>Recipient Name</Label><Input value={f.customerName} onChange={e => setF({ ...f, customerName: e.target.value })} /></div>
+           <div><Label>Type</Label>
+             <Select value={f.customerType} onValueChange={(v: any) => setF({ ...f, customerType: v })}>
+               <SelectTrigger><SelectValue /></SelectTrigger>
+@@ -603,15 +704,6 @@ function InvoiceFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
+               </SelectContent>
+             </Select>
+           </div>
+-          <div className="col-span-1"><Label>Invoice Type</Label>
+-            <Select value={f.invoiceType} onValueChange={(v: any) => setF({ ...f, invoiceType: v })}>
+-              <SelectTrigger><SelectValue /></SelectTrigger>
+-              <SelectContent>
+-                <SelectItem value="PI">Proforma (PI)</SelectItem>
+-                <SelectItem value="TI">Tax Invoice (TI)</SelectItem>
+-              </SelectContent>
+-            </Select>
+-          </div>
+           <div className="col-span-2"><Label>Revenue Stream</Label>
+             <Select value={f.revenueStream} onValueChange={(v: any) => setF({ ...f, revenueStream: v })}>
+               <SelectTrigger><SelectValue /></SelectTrigger>
+@@ -663,32 +755,18 @@ function InvoiceViewDrawer({ invoice, onClose }: { invoice: Invoice | null; onCl
+   const [amount, setAmount] = useState(0);
+   const [mode, setMode] = useState<PaymentMode>("UPI");
+ 
+-  const queryClient = useQueryClient();
+-  const collectMutation = useMutation({
+-    mutationFn: createPaymentApi,
+-    onSuccess: () => {
+-      queryClient.invalidateQueries({ queryKey: ['payments'] });
+-      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+-      toast({ title: "Payment recorded successfully" });
+-      onClose();
+-    },
+-    onError: (error: any) => {
+-      toast({ title: "Failed to record payment", description: error.response?.data?.message || error.message, variant: "destructive" });
+-    }
+-  });
+-
+   if (!invoice) return null;
+-  const invTotal = invoice.total ?? (invoice as any).totalAmount ?? 0;
+-  const invPaid = invoice.amountPaid ?? 0;
+-  const due = invTotal - invPaid;
++  const due = invoice.total - invoice.amountPaid;
+ 
+   const collect = () => {
+     if (amount <= 0 || amount > due) { toast({ title: `Enter amount up to ${fmtINR(due)}`, variant: "destructive" }); return; }
+-    collectMutation.mutate({
++    recordPayment({
+       invoiceId: invoice.id, customerId: invoice.customerId, customerName: invoice.customerName,
+       amount, mode, paidOn: new Date().toISOString(), reference: `MANUAL-${Date.now()}`,
+       recordedBy: currentUser?.id || "u0",
+-    });
++    } as any, currentUser?.id || "u0");
++    toast({ title: "Payment recorded" });
++    onClose();
+   };
+ 
+   return (
+@@ -702,9 +780,9 @@ function InvoiceViewDrawer({ invoice, onClose }: { invoice: Invoice | null; onCl
+           <Row k="Due" v={fmtDate(invoice.dueDate)} />
+           <Row k="Subtotal" v={fmtINR(invoice.subtotal)} />
+           <Row k="Discount" v={fmtINR(invoice.discount)} />
+-          <Row k="CGST + SGST" v={fmtINR((invoice.cgst || 0) + (invoice.sgst || 0))} />
+-          <Row k="Total" v={<b>{fmtINR(invTotal)}</b>} />
+-          <Row k="Paid" v={fmtINR(invPaid)} />
++          <Row k="CGST + SGST" v={fmtINR(invoice.cgst + invoice.sgst)} />
++          <Row k="Total" v={<b>{fmtINR(invoice.total)}</b>} />
++          <Row k="Paid" v={fmtINR(invoice.amountPaid)} />
+           <Row k="Due" v={<span className="text-destructive font-semibold">{fmtINR(due)}</span>} />
+         </Card>
+         {due > 0 && (
+@@ -790,38 +868,31 @@ function EmiTab() {
+ }
+ 
+ /* ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ Expenses ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
+-function ExpensesTab({ role, approvals }: { role: RoleScope; approvals: ApprovalRequest[] }) {
++function ExpensesTab({ role }: { role: RoleScope }) {
+   const fin = useFinance();
+   const { currentUser } = useAuth();
+   const { toast } = useToast();
+   const [open, setOpen] = useState(false);
+ 
+-  const queryClient = useQueryClient();
+-  const actMutation = useMutation({
+-    mutationFn: ({ id, data }: { id: string; data: any }) => actOnApprovalApi(id, data),
+-    onSuccess: () => {
+-      queryClient.invalidateQueries({ queryKey: ['approvals'] });
+-      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+-      toast({ title: "Action recorded" });
+-    },
+-    onError: (error: any) => {
+-      toast({ title: "Failed to record action", description: error.response?.data?.message || error.message, variant: "destructive" });
+-    }
+-  });
++  const canApprove = role === "owner" || role === "manager";
+ 
+   const actOnApproval = (exp: Expense, action: "Approve" | "Reject") => {
+-    const req = approvals.find(a => a.requestType === "Expense Bill" && a.requestId === exp.id);
++    const req = approvalForExpense(exp.id);
++    const actorRole: UserRole = (currentUser?.role as UserRole) || "accounts_manager";
+     if (req) {
+-      actMutation.mutate({
+-        id: req.id,
+-        data: {
+-          action,
+-          actorId: currentUser?.id || "u0",
+-          actorRole: currentUser?.role,
+-          comment: action === "Reject" ? "Rejected via Expenses tab" : undefined,
+-        }
++      const updated = approvalStore.act(req.id, {
++        action,
++        actorId: currentUser?.id || "u0",
++        actorRole,
++        comment: action === "Reject" ? "Rejected via Expenses tab" : undefined,
+       });
++      if (!updated) { toast({ title: "Approval level not configured.", variant: "destructive" }); return; }
++      syncApprovalToExpense(updated, currentUser?.id || "u0");
++    } else {
++      // fallback (legacy expenses without an approval record)
++      setExpenseStatus(exp.id, action === "Approve" ? "Approved" : "Rejected", currentUser?.id || "u0");
+     }
++    toast({ title: action === "Approve" ? "Expense approved" : "Expense rejected" });
+   };
+ 
+   const cols: Column<Expense>[] = [
+@@ -836,17 +907,12 @@ function ExpensesTab({ role, approvals }: { role: RoleScope; approvals: Approval
+     }, exportValue: r => { try { return tierForAmount(r.total).tier; } catch { return ""; } } },
+     { key: "status", header: "Status", render: r => <StatusPill status={r.status} tone={statusTone(r.status)} />, exportValue: r => r.status },
+     {
+-      key: "actions", header: "", render: r => {
+-        const req = approvals.find(a => a.requestType === "Expense Bill" && a.requestId === r.id);
+-        const ableToAct = req ? canActOnApproval(currentUser?.role as UserRole, req) : (role === "owner" || role === "manager");
+-        
+-        return ableToAct && r.status === "Pending"
+-          ? <div className="flex gap-1">
+-              <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); actOnApproval(r, "Approve"); }}>Approve</Button>
+-              <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); actOnApproval(r, "Reject"); }}>Reject</Button>
+-            </div>
+-          : null;
+-      }
++      key: "actions", header: "", render: r => canApprove && r.status === "Pending"
++        ? <div className="flex gap-1">
++            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); actOnApproval(r, "Approve"); }}>Approve</Button>
++            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); actOnApproval(r, "Reject"); }}>Reject</Button>
++          </div>
++        : null
+     },
+   ];
+ 
+@@ -873,46 +939,32 @@ function ExpenseFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
+     vendorId: "",
+     amount: 0, gst: 0,
+     spendDate: new Date().toISOString().slice(0, 10),
+-    title: "",
+     description: "",
+     paymentMode: "Bank" as PaymentMode,
+   });
+ 
+-  const queryClient = useQueryClient();
+-  const createMutation = useMutation({
+-    mutationFn: createExpenseApi,
+-    onSuccess: (data) => {
+-      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+-      try {
+-        const role = (currentUser?.role as UserRole) || "accounts_executive";
+-        const tier = tierForAmount(data.total);
+-        submitExpenseForApproval(data, currentUser?.id || "u0", role);
+-        toast({ title: "Expense submitted", description: `Routed to ${tier.tier.replace(/_/g, " ")} (${tier.approverRole.replace(/_/g, " ")}).` });
+-      } catch {
+-        toast({ title: "Expense created but approval level not configured." });
+-      }
+-      onClose();
+-    },
+-    onError: (error: any) => {
+-      toast({ title: "Failed to submit expense", description: error.response?.data?.message || error.message, variant: "destructive" });
+-    }
+-  });
+-
+   const submit = () => {
+-    if (f.amount <= 0 || !f.description || !f.title) { toast({ title: "Fill title, amount + description", variant: "destructive" }); return; }
++    if (f.amount <= 0 || !f.description) { toast({ title: "Fill amount + description", variant: "destructive" }); return; }
+     const vendor = fin.vendors.find(v => v.id === f.vendorId);
+-    createMutation.mutate({
++    const exp = createExpense({
+       category: f.category,
+       vendorId: vendor?.id, vendorName: vendor?.name,
+       amount: f.amount, gst: f.gst,
+-      total: f.amount + f.gst,
+       spendDate: new Date(f.spendDate).toISOString(),
+-      title: f.title,
+       description: f.description,
+       status: "Pending",
+       paymentMode: f.paymentMode,
+       submittedBy: currentUser?.id || "u0",
+-    });
++    } as any, currentUser?.id || "u0");
++    try {
++      const role = (currentUser?.role as UserRole) || "accounts_executive";
++      const tier = tierForAmount(exp.total);
++      submitExpenseForApproval(exp, currentUser?.id || "u0", role);
++      toast({ title: "Expense submitted", description: `Routed to ${tier.tier.replace(/_/g, " ")} (${tier.approverRole.replace(/_/g, " ")}).` });
++    } catch {
++      toast({ title: "Approval level not configured.", variant: "destructive" });
++    }
++    onClose();
+   };
+ 
+   return (
+@@ -940,7 +992,6 @@ function ExpenseFormDrawer({ open, onClose }: { open: boolean; onClose: () => vo
+           <div><Label>GST (Γé╣)</Label><Input type="number" value={f.gst || ""} onChange={e => setF({ ...f, gst: +e.target.value })} /></div>
+         </div>
+         <div><Label>Date</Label><Input type="date" value={f.spendDate} onChange={e => setF({ ...f, spendDate: e.target.value })} /></div>
+-        <div><Label>Expense Title</Label><Input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder="e.g. Office Stationery, Server Hosting" /></div>
+         <div><Label>Payment Mode</Label>
+           <Select value={f.paymentMode} onValueChange={(v: any) => setF({ ...f, paymentMode: v })}>
+             <SelectTrigger><SelectValue /></SelectTrigger>
+@@ -1029,25 +1080,6 @@ function VendorFormDrawer({ open, onClose }: { open: boolean; onClose: () => voi
+   const { currentUser } = useAuth();
+   const { toast } = useToast();
+   const [f, setF] = useState({ name: "", category: "", gstin: "", contactName: "", phone: "", email: "", address: "", openingBalance: 0 });
+-
+-  const queryClient = useQueryClient();
+-  const createMutation = useMutation({
+-    mutationFn: createVendorApi,
+-    onSuccess: () => {
+-      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+-      toast({ title: "Vendor added successfully" });
+-      onClose();
+-    },
+-    onError: (error: any) => {
+-      toast({ title: "Failed to add vendor", description: error.response?.data?.message || error.message, variant: "destructive" });
+-    }
+-  });
+-
+-  const submit = () => {
+-    if (!f.name) { toast({ title: "Name required", variant: "destructive" }); return; }
+-    createMutation.mutate(f);
+-  };
+-
+   return (
+     <FinanceDrawer open={open} onOpenChange={(o) => !o && onClose()} title="Add Vendor">
+       <div className="space-y-3">
+@@ -1059,9 +1091,11 @@ function VendorFormDrawer({ open, onClose }: { open: boolean; onClose: () => voi
+         </div>
+         <div><Label>GSTIN</Label><Input value={f.gstin} onChange={e => setF({ ...f, gstin: e.target.value })} /></div>
+         <div><Label>Email</Label><Input value={f.email} onChange={e => setF({ ...f, email: e.target.value })} /></div>
+-        <Button className="w-full" onClick={submit} disabled={createMutation.isPending}>
+-          {createMutation.isPending ? "Saving..." : "Save Vendor"}
+-        </Button>
++        <Button className="w-full" onClick={() => {
++          if (!f.name) { toast({ title: "Name required", variant: "destructive" }); return; }
++          createVendor(f as any, currentUser?.id || "u0");
++          toast({ title: "Vendor added" }); onClose();
++        }}>Save Vendor</Button>
+       </div>
+     </FinanceDrawer>
+   );
+@@ -1113,7 +1147,7 @@ function BudgetsTab() {
+   const [open, setOpen] = useState(false);
+ 
+   const data = fin.budgets.map(b => {
+-    const actual = (fin.expenses || []).filter(e => e.category === b.category && e.status === "Approved" && e?.spendDate?.startsWith(b.month)).reduce((s, e) => s + (e.total || 0), 0);
++    const actual = fin.expenses.filter(e => e.category === b.category && e.status === "Approved" && e.spendDate.startsWith(b.month)).reduce((s, e) => s + e.total, 0);
+     const variance = b.plannedAmount - actual;
+     return { ...b, actual, variance, variancePct: b.plannedAmount ? (variance / b.plannedAmount * 100) : 0 };
+   });
+@@ -1181,10 +1215,9 @@ function BudgetForm({ onDone }: { onDone: () => void }) {
+ /* ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ Profitability ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
+ function ProfitTab() {
+   const fin = useFinance();
+-  const byStream = (fin.invoices || []).reduce<Record<string, { revenue: number }>>((acc, i) => {
+-    const stream = i.revenueStream || "Direct";
+-    acc[stream] = acc[stream] || { revenue: 0 };
+-    acc[stream].revenue += (i.amountPaid || 0);
++  const byStream = fin.invoices.reduce<Record<string, { revenue: number }>>((acc, i) => {
++    acc[i.revenueStream] = acc[i.revenueStream] || { revenue: 0 };
++    acc[i.revenueStream].revenue += i.amountPaid;
+     return acc;
+   }, {});
+   const totalExp = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.total, 0);
+@@ -1237,8 +1270,8 @@ function CashflowTab() {
+   // Forecast: sum of expected receivables (open invoices due in next N days) and payables
+   const horizons = [30, 60, 90];
+   const forecast = horizons.map(d => {
+-    const receivable = (fin.invoices || []).filter(i => i.status !== "Paid" && i.status !== "Cancelled" && i.dueDate && new Date(i.dueDate).getTime() < Date.now() + d * 86400000).reduce((s, i) => s + ((i.total || 0) - (i.amountPaid || 0)), 0);
+-    const payable = (fin.vendorBills || []).filter(b => b.status !== "Paid" && b.dueDate && new Date(b.dueDate).getTime() < Date.now() + d * 86400000).reduce((s, b) => s + ((b.total || 0) - (b.paid || 0)), 0);
++    const receivable = fin.invoices.filter(i => i.status !== "Paid" && i.status !== "Cancelled" && new Date(i.dueDate).getTime() < Date.now() + d * 86400000).reduce((s, i) => s + (i.total - i.amountPaid), 0);
++    const payable = fin.vendorBills.filter(b => b.status !== "Paid" && new Date(b.dueDate).getTime() < Date.now() + d * 86400000).reduce((s, b) => s + (b.total - b.paid), 0);
+     return { name: `${d}D`, receivable, payable, net: receivable - payable };
+   });
+ 
+@@ -1278,8 +1311,8 @@ function CashflowTab() {
+ /* ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ GST ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
+ function GstTab() {
+   const fin = useFinance();
+-  const output = (fin.invoices || []).filter(i => i.invoiceType === 'TI').reduce((s, i) => s + (i.cgst || 0) + (i.sgst || 0) + (i.igst || 0), 0);
+-  const input = (fin.expenses || []).filter(e => e.status === "Approved").reduce((s, e) => s + (e.gst || 0), 0);
++  const output = fin.invoices.reduce((s, i) => s + i.cgst + i.sgst + i.igst, 0);
++  const input = fin.expenses.filter(e => e.status === "Approved").reduce((s, e) => s + e.gst, 0);
+   const payable = Math.max(0, output - input);
+ 
+   const cols: Column<Invoice>[] = [
+@@ -1314,7 +1347,7 @@ function ExportsTab() {
+   const [from, setFrom] = useState(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
+   const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+ 
+-  const preview = useMemo(() => buildVouchers(fin, txnType, range, from, to), [txnType, range, from, to, fin]);
++  const preview = useMemo(() => buildVouchers(txnType, range, from, to), [txnType, range, from, to, fin]);
+ 
+   const stamp = () => `${txnType}_${range}_${new Date().toISOString().slice(0, 10)}`;
+ 

@@ -10,7 +10,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { computeBreakup, detectIntraState, validateGstInput, type GstInputMode } from "@/lib/gst-calc";
 import { GstAmountInput } from "./GstAmountInput";
 import { fmtINR } from "./FinanceKpi";
-import { Zap } from "lucide-react";
+import { FileCheck2 } from "lucide-react";
 
 interface Props { open: boolean; onClose: () => void }
 
@@ -69,7 +69,7 @@ export function QuickInvoiceDialog({ open, onClose }: Props) {
       customerName: recipient.trim(), 
       customerType: "Student",
       revenueStream: "Student Admissions",
-      programName: program || "Quick Invoice",
+      programName: program || "Tax Invoice",
       issueDate: new Date().toISOString(),
       dueDate: new Date(Date.now() + 15 * 86400000).toISOString(),
       subtotal: b.taxable, 
@@ -81,7 +81,7 @@ export function QuickInvoiceDialog({ open, onClose }: Props) {
       igst: b.igst,
       totalAmount: b.taxable + b.gstAmount,
       gstin, 
-      notes: `Generated via Quick Invoice (${mode === "gross_inclusive" ? "Gross" : "Net"} mode)`,
+      notes: `Tax Invoice (TI) — ${mode === "gross_inclusive" ? "Gross" : "Net"} mode`,
       createdBy: currentUser?.id || "u0"
     });
   };
@@ -90,8 +90,12 @@ export function QuickInvoiceDialog({ open, onClose }: Props) {
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Zap className="h-4 w-4 text-primary" /> Quick Invoice</DialogTitle>
-          <DialogDescription>Enter the gross fee and we'll auto-split taxable value and GST.</DialogDescription>
+          <DialogTitle className="flex items-center gap-2">
+            <FileCheck2 className="h-4 w-4 text-emerald-600" />
+            Create Tax Invoice (TI)
+            <span className="ml-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">TI</span>
+          </DialogTitle>
+          <DialogDescription>Use TI only after payment is received. Counts in collected revenue and creates GST liability.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -110,7 +114,7 @@ export function QuickInvoiceDialog({ open, onClose }: Props) {
             onClick={submit} 
             disabled={createMutation.isPending}
           >
-            {createMutation.isPending ? "Generating..." : "Generate Invoice"}
+            {createMutation.isPending ? "Generating..." : "Generate Tax Invoice"}
           </Button>
         </div>
       </DialogContent>

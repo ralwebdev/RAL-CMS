@@ -13,6 +13,10 @@ import {
   createPayment,
   convertPiToTi,
   getPiTiMappings,
+  linkExistingTiToPi,
+  getVendorBills,
+  createVendorBill,
+  updateVendorBill
 } from '../controllers/financeController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -27,6 +31,14 @@ router.route('/vendors')
   .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), createVendor);
 router.route('/vendors/:id')
   .put(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), updateVendor);
+
+// Vendor Bill routes
+router.route('/vendor-bills')
+  .get(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), getVendorBills)
+  .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), createVendorBill);
+router.route('/vendor-bills/:id')
+  .put(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), updateVendorBill);
+
 
 // Invoice routes
 router.route('/invoices')
@@ -48,7 +60,13 @@ router.route('/payments')
   .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), createPayment);
 
 // PI-TI Lifecycle routes
-router.post('/convert-pi-to-ti', authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), convertPiToTi);
-router.get('/pi-ti-mappings', authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), getPiTiMappings);
+router.route('/convert-pi-to-ti')
+  .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), convertPiToTi);
+
+router.route('/link-pi-ti')
+  .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), linkExistingTiToPi);
+
+router.route('/pi-ti-mappings')
+  .get(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), getPiTiMappings);
 
 export default router;

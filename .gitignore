@@ -47,4 +47,3 @@ frontend/.env
 backend/.env
 tmp_remote_repo
 
-issue: userSeeding should be done with hashed password

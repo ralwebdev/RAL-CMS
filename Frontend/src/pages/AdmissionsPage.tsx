@@ -6,8 +6,11 @@ import { submitApprovalApi } from "@/lib/alliance-data";
 import { Admission, PaymentStatus, PaymentMode, PaymentType, PaymentHistoryEntry, Lead } from "@/lib/types";
 import {
   MASTER_PAYMENT_MODES, MASTER_COURSE_NAMES, MASTER_BATCH_TIMINGS,
-  MASTER_SCHOLARSHIP_LEVELS,
+  MASTER_SCHOLARSHIP_LEVELS, getCourseFee
 } from "@/lib/master-schema";
+import { computeBreakup } from "@/lib/gst-calc";
+import { findOpenPiForStudent } from "@/lib/pi-helpers";
+import { fmtINR } from "@/components/finance/FinanceKpi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,8 +18,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { StatCard } from "@/components/StatCard";
 import { AutoPiPromptDialog } from "@/components/admissions/AutoPiPromptDialog";
-import { GraduationCap, IndianRupee, UserCheck, Plus, CreditCard, AlertCircle, CheckCircle2, User, Phone, Building2, CalendarClock } from "lucide-react";
+import { GraduationCap, IndianRupee, UserCheck, Plus, CreditCard, AlertCircle, CheckCircle2, User, Phone, Building2, CalendarClock, FileText, Receipt, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 const PAYMENT_MODES: PaymentMode[] = [...MASTER_PAYMENT_MODES] as PaymentMode[];
 const PAYMENT_TYPES: PaymentType[] = ["Admission Fee", "Seat Booking", "Registration", "EMI"];
@@ -128,6 +132,60 @@ function SuggestionCard({ admission }: { admission: Admission | null }) {
           </span>
         </div>
       )}
+
+      {/* TI Suggestion Banner — non-blocking */}
+      {lastPayment && (
+        <TiSuggestionBanner admission={admission} totalPaid={totalPaid} remaining={remaining} />
+      )}
+    </div>
+  );
+}
+
+/** Non-blocking banner suggesting Tax Invoice generation after a payment is logged. */
+function TiSuggestionBanner({
+  admission,
+  totalPaid,
+  remaining,
+}: {
+  admission: Admission;
+  totalPaid: number;
+  remaining: number;
+}) {
+  const navigate = useNavigate();
+  const fullyPaid = remaining <= 0.5;
+  const linkedPi = findOpenPiForStudent(admission.studentName);
+
+  const message = fullyPaid
+    ? "Payment complete. Generate Tax Invoice now."
+    : "Partial payment received. Generate TI for received amount or wait per policy.";
+
+  const handleGenerate = () => {
+    toast.info("Opening billing — Create Tax Invoice", {
+      description: `Recipient: ${admission.studentName} · Amount: ${fmtINR(totalPaid)}`,
+    });
+    navigate("/accounts");
+  };
+
+  return (
+    <div className="rounded-lg border border-success/30 bg-success/5 p-3 space-y-2 mt-4">
+      <div className="flex items-start gap-2">
+        <Receipt className="h-4 w-4 text-success shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="h-3 w-3 text-success" />
+            <p className="text-xs font-semibold text-success">TI Suggested</p>
+          </div>
+          <p className="text-[11px] text-foreground mt-0.5">{message}</p>
+          {linkedPi && (
+            <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
+              <FileText className="h-3 w-3" /> Linked PI: <span className="font-medium">{linkedPi.invoiceNo}</span>
+            </p>
+          )}
+        </div>
+      </div>
+      <Button size="sm" variant="outline" className="w-full h-7 text-xs border-success/40 text-success hover:bg-success/10" onClick={handleGenerate}>
+        Generate Tax Invoice
+      </Button>
     </div>
   );
 }
@@ -468,7 +526,13 @@ export default function AdmissionsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Course</Label>
-                  <Select value={form.courseSelected} onValueChange={(v) => setForm({ ...form, courseSelected: v })}>
+                  <Select
+                    value={form.courseSelected}
+                    onValueChange={(v) => {
+                      const fee = getCourseFee(v);
+                      setForm({ ...form, courseSelected: v, totalFee: fee ? String(fee) : form.totalFee });
+                    }}
+                  >
                     <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
                     <SelectContent>{MASTER_COURSE_NAMES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                   </Select>
@@ -483,8 +547,24 @@ export default function AdmissionsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Admission Date</Label><Input type="date" value={form.admissionDate} onChange={(e) => setForm({ ...form, admissionDate: e.target.value })} /></div>
-                <div><Label>Total Fee (₹)</Label><Input type="number" value={form.totalFee} onChange={(e) => setForm({ ...form, totalFee: e.target.value })} /></div>
+                <div>
+                  <Label>Total Fee (GST Included, ₹)</Label>
+                  <Input type="number" value={form.totalFee} onChange={(e) => setForm({ ...form, totalFee: e.target.value })} />
+                  <p className="text-[11px] text-muted-foreground mt-1">Auto-fills from selected course; edit if scholarship applies.</p>
+                </div>
               </div>
+              {parseFloat(form.totalFee) > 0 && (() => {
+                const b = computeBreakup(parseFloat(form.totalFee), 18, "gross_inclusive", true);
+                return (
+                  <div className="rounded-md bg-muted/40 p-3 text-xs space-y-1">
+                    <p className="font-medium text-foreground">Student Payable Breakup (GST 18%)</p>
+                    <div className="flex justify-between text-muted-foreground"><span>Course Fee (Taxable)</span><span className="tabular-nums">₹{b.taxable.toLocaleString()}</span></div>
+                    <div className="flex justify-between text-muted-foreground"><span>CGST (9%)</span><span className="tabular-nums">₹{b.cgst.toLocaleString()}</span></div>
+                    <div className="flex justify-between text-muted-foreground"><span>SGST (9%)</span><span className="tabular-nums">₹{b.sgst.toLocaleString()}</span></div>
+                    <div className="flex justify-between font-semibold text-foreground pt-1 border-t border-border"><span>Total Payable</span><span className="tabular-nums">₹{b.gross.toLocaleString()}</span></div>
+                  </div>
+                );
+              })()}
               <div>
                 <Label>Payment Status</Label>
                 <Select value={form.paymentStatus} onValueChange={(v) => setForm({ ...form, paymentStatus: v as PaymentStatus })}>

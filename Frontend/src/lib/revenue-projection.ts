@@ -437,3 +437,98 @@ export function computeRevenueKpis(
     cacPaybackMonths: monthlyBurn > 0 ? Math.max(0, avgTicket / monthlyBurn) : 0,
   };
 }
+
+// ────────────────────────────── PI / TI Dashboard Analytics ──────────────────────────────
+
+export function computePiTiSplit(
+  invoices: Invoice[],
+  payments: Payment[],
+  getPiOpenBal: (id: string) => number
+) {
+  let piReceivableOpen = 0;
+  let realizedRevenueBilled = 0;
+  let realizedRevenueCollected = 0;
+  let piConverted = 0;
+  let piRaised = 0;
+  let gstFromTi = 0;
+
+  const now = Date.now();
+  let aging = {
+    "0-30 days": 0,
+    "31-60 days": 0,
+    "61-90 days": 0,
+    "90+ days": 0,
+  };
+
+  for (const inv of invoices) {
+    if (inv.status === "Cancelled") continue;
+    const type = inv.invoiceType ?? "PI";
+    
+    if (type === "PI") {
+      piRaised += inv.total;
+      const open = getPiOpenBal(inv.id);
+      piReceivableOpen += open;
+      piConverted += (inv.total - open);
+      
+      if (open > 0 && inv.dueDate) {
+        const days = Math.floor((now - new Date(inv.dueDate).getTime()) / (1000 * 60 * 60 * 24));
+        if (days <= 30) aging["0-30 days"] += open;
+        else if (days <= 60) aging["31-60 days"] += open;
+        else if (days <= 90) aging["61-90 days"] += open;
+        else aging["90+ days"] += open;
+      }
+    } else if (type === "TI") {
+      realizedRevenueBilled += inv.total;
+      realizedRevenueCollected += inv.amountPaid;
+      gstFromTi += (inv.cgst || 0) + (inv.sgst || 0) + (inv.igst || 0);
+    }
+  }
+
+  const piToTiConversionPct = piRaised > 0 ? Math.round((piConverted / piRaised) * 100) : 0;
+  
+  return {
+    piReceivableOpen,
+    realizedRevenueBilled,
+    realizedRevenueCollected,
+    piToTiConversionPct,
+    piConverted,
+    piRaised,
+    gstFromTi,
+    piAgingBuckets: Object.entries(aging).map(([bucket, amount]) => ({ bucket, amount })),
+  };
+}
+
+export function computePiTiMonthlyTrend(
+  invoices: Invoice[],
+  payments: Payment[],
+  monthsLimit: number = 6
+) {
+  const map = new Map<string, { label: string; piRaised: number; tiGenerated: number; collected: number }>();
+  
+  const ensureMonth = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (!map.has(k)) {
+      map.set(k, { label: d.toLocaleString('en-US', { month: 'short', year: '2-digit' }), piRaised: 0, tiGenerated: 0, collected: 0 });
+    }
+    return k;
+  };
+
+  for (const inv of invoices) {
+    if (inv.status === "Cancelled") continue;
+    const k = ensureMonth(inv.issueDate);
+    if ((inv.invoiceType ?? "PI") === "PI") map.get(k)!.piRaised += inv.total;
+    if (inv.invoiceType === "TI") map.get(k)!.tiGenerated += inv.total;
+  }
+
+  for (const pay of payments) {
+    if (!pay.paidOn) continue;
+    const k = ensureMonth(pay.paidOn);
+    map.get(k)!.collected += pay.amount;
+  }
+
+  return Array.from(map.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-monthsLimit)
+    .map(e => e[1]);
+}
