@@ -59,7 +59,11 @@ import { AdminBillingTab } from "./AdminBillingTab";
 import { computeEmiMetrics, computeStudentRisk, computePiTiSplit, computePiTiMonthlyTrend } from "@/lib/revenue-projection";
 import { PiToTiConvertDialog } from "./PiToTiConvertDialog";
 import { piOpenBalance, piConvertedAmount } from "@/lib/finance-store";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, History } from "lucide-react";
+import {
+  getCollections, subscribeCollections, getUnverifiedTotal,
+  getRequestsAwaitingAccounts, getRequestsAwaitingAdmin,
+} from "@/lib/collection-store";
 
 const CHART_COLORS = ["hsl(var(--primary))", "#1A1A1A", "#10b981", "#f59e0b", "#6366f1", "#ec4899", "#0ea5e9"];
 
@@ -193,7 +197,7 @@ export function AccountsModule() {
         <TabsContent value="cashflow" className="mt-4"><CashflowTab /></TabsContent>
         <TabsContent value="gst" className="mt-4"><GstTab /></TabsContent>
         <TabsContent value="reports" className="mt-4"><ReportsTab /></TabsContent>
-        <TabsContent value="collection_reports" className="mt-4"><CollectionReportsTab /></TabsContent>
+        <TabsContent value="collection_reports" className="mt-4"><CollectionReportsTab invoices={fin.invoices} /></TabsContent>
         <TabsContent value="exports" className="mt-4"><ExportsTab /></TabsContent>
       </Tabs>
     </div>
@@ -208,6 +212,14 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
   const editsToday = edits.filter(e => new Date(e.at).toDateString() === todayKey).length;
   const highValueChanges = edits.filter(e => e.highValue).length;
   const revisedBilling = edits.reduce((s, e) => s + e.amountDelta, 0);
+
+  const collections = useSyncExternalStore(subscribeCollections, getCollections, getCollections);
+  const unverifiedTotal = getUnverifiedTotal();
+  const pendingAccountsCount = getRequestsAwaitingAccounts().length;
+  const pendingAdminCount = getRequestsAwaitingAdmin().length;
+  const collectionsTodayCount = collections.filter(c => new Date(c.collectedAt).toDateString() === todayKey).length;
+  const collectionsTodayAmt = collections.filter(c => new Date(c.collectedAt).toDateString() === todayKey).reduce((s, c) => s + c.amount, 0);
+
   const emiMetrics = computeEmiMetrics(fin.emiSchedules || []);
   const riskRows = computeStudentRisk(fin.invoices || [], fin.emiSchedules || []);
   const riskAtStake = riskRows.filter(r => r.riskLevel !== "low").reduce((s, r) => s + (r.balanceDue || 0), 0);
@@ -295,8 +307,10 @@ function DashboardTab({ onJump }: { onJump: (id: string) => void }) {
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <FinanceKpi label="Billing Raised" value={fmtINR(totalBilled)} hint={`${fin.invoices.length} invoices`} tone="primary" icon={<FileText className="h-4 w-4" />} onClick={() => onJump("billing")} />
-        <FinanceKpi label="Cash Received" value={fmtINR(totalCollected)} hint={`${fin.payments.length} receipts`} tone="success" icon={<IndianRupee className="h-4 w-4" />} onClick={() => onJump("collections")} />
-        <FinanceKpi label="Outstanding Dues" value={fmtINR(outstanding)} hint="All open invoices" tone="warning" icon={<AlertTriangle className="h-4 w-4" />} onClick={() => onJump("collections")} />
+        <FinanceKpi label="Today's Collections" value={fmtINR(collectionsTodayAmt)} hint={`${collectionsTodayCount} entries · Unverified ${fmtINR(unverifiedTotal)}`} tone="success" icon={<IndianRupee className="h-4 w-4" />} onClick={() => onJump("collections_log")} />
+        <FinanceKpi label="Cash Received" value={fmtINR(totalCollected)} hint={`${fin.payments.length} verified receipts`} tone="success" icon={<IndianRupee className="h-4 w-4" />} onClick={() => onJump("collections")} />
+        <FinanceKpi label="Pending Invoicing" value={pendingAccountsCount} hint={`${pendingAdminCount} awaiting admin`} tone="warning" icon={<ShieldCheck className="h-4 w-4" />} onClick={() => onJump("verified_payments")} />
+        <FinanceKpi label="Outstanding Dues" value={fmtINR(outstanding)} hint="All open invoices" tone="warning" icon={<AlertTriangle className="h-4 w-4" />} onClick={() => onJump("billing")} />
         <FinanceKpi label="Total Expenses" value={fmtINR(totalExpenses)} hint="Approved this period" tone="destructive" icon={<Receipt className="h-4 w-4" />} onClick={() => onJump("expenses")} />
         <FinanceKpi label="Net Profit" value={fmtINR(netProfit)} hint={netProfit >= 0 ? "In the green" : "Negative"} tone={netProfit >= 0 ? "success" : "destructive"} icon={<TrendingUp className="h-4 w-4" />} onClick={() => onJump("profit")} />
         <FinanceKpi label="GST Liability" value={fmtINR(gstLiability)} hint={`Output ${fmtINR(gstOutput)}`} tone="primary" icon={<BadgePercent className="h-4 w-4" />} onClick={() => onJump("gst")} />

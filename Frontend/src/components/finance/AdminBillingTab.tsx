@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/select";
 import {
   ShieldCheck, Send, AlertTriangle, CheckCircle2, X, Clock,
-  Plus, Lock,
+  Plus, Lock, ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
@@ -160,12 +160,24 @@ export function AdminBillingTab() {
         </Button>
       </header>
 
-      {/* ── Restriction notice ── */}
-      <Card className="p-3 border-l-4 border-l-warning bg-warning/5 flex items-start gap-2">
-        <Lock className="h-4 w-4 text-warning mt-0.5 shrink-0" />
-        <div className="text-xs text-foreground">
-          <span className="font-medium">Admin scope — verification only.</span>{" "}
-          Invoice creation, editing, conversion (PI→TI), receipt generation and sending are handled by Accounts after bank reconciliation.
+      {/* ── Hard-Block Restriction banner ── */}
+      <Card className="p-4 border-none bg-destructive/5 ring-1 ring-destructive/20 relative overflow-hidden group">
+        <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+          <ShieldAlert className="h-20 w-20 text-destructive -mr-10 -mt-10" />
+        </div>
+        <div className="flex items-start gap-4 relative z-10">
+          <div className="h-10 w-10 rounded-xl bg-destructive/10 flex items-center justify-center shrink-0">
+            <Lock className="h-5 w-5 text-destructive" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-sm font-bold text-destructive uppercase tracking-wider">Restricted Access Boundary</h4>
+            <p className="text-xs text-foreground/80 leading-relaxed max-w-2xl">
+              You are logged in with <span className="font-bold">Administrative Verification</span> scope. 
+              As per the April 24 Update, your role is strictly hard-blocked from:
+              <span className="block mt-1 font-medium text-destructive/90">• Issuing PI / TI / Receipts · Editing existing invoices · Converting PI to TI · Deleting records.</span>
+              All financial issuance is handled exclusively by the Accounts team after your verification is complete.
+            </p>
+          </div>
         </div>
       </Card>
 

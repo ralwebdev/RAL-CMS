@@ -24,6 +24,11 @@ import axios from "axios";
 import { MASTER_COURSES } from "@/lib/master-schema";
 import { AllianceExecutiveDashboard } from "@/components/alliance/AllianceExecutiveDashboard";
 import { AllianceManagerDashboard } from "@/components/alliance/AllianceManagerDashboard";
+import { useSyncExternalStore } from "react";
+import {
+  getCollections, subscribeCollections, getUnverifiedTotal,
+} from "@/lib/collection-store";
+import { fmtINR } from "@/components/finance/FinanceKpi";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -618,6 +623,11 @@ function OwnerDashboard() {
     fetchDashboardData();
   }, []);
 
+  const collections = useSyncExternalStore(subscribeCollections, getCollections, getCollections);
+  const unverifiedTotal = getUnverifiedTotal();
+  const todayKey = new Date().toDateString();
+  const collectionsTodayAmt = collections.filter(c => new Date(c.collectedAt).toDateString() === todayKey).reduce((s, c) => s + c.amount, 0);
+
   const [activeSection, setActiveSection] = useState("overview");
   const [drillDown, setDrillDown] = useState<string | null>(null);
 
@@ -927,6 +937,8 @@ function OwnerDashboard() {
 
       {/* ── SECTION 2: Marketing KPIs ── */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
+        <StatCard title="Today's Collections" value={fmtINR(collectionsTodayAmt)} icon={<DollarSign className="h-5 w-5" />} trend="Counselor Logs" />
+        <StatCard title="Unverified Total" value={fmtINR(unverifiedTotal)} icon={<Shield className="h-5 w-5" />} trend={unverifiedTotal > 0 ? "Awaiting Admin" : "Clear"} className={unverifiedTotal > 0 ? "border-warning/20" : ""} />
         <StatCard title="Leads This Month" value={totalLeadsGenerated} icon={<Users className="h-5 w-5" />} />
         <StatCard title="Campaign Spend" value={`₹${totalSpend.toLocaleString()}`} icon={<DollarSign className="h-5 w-5" />} />
         <StatCard title="Cost Per Lead" value={`₹${cpl}`} icon={<Target className="h-5 w-5" />} />
