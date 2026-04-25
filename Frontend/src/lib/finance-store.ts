@@ -42,7 +42,10 @@ export const fetchVendorBillsApi = async (): Promise<VendorBill[]> => {
   return data;
 };
 
-
+export const fetchEmiSchedulesApi = async (): Promise<EmiSchedule[]> => {
+  const { data } = await axios.get(`${API_URL}/api/finance/emi-schedules`, getHeaders());
+  return data;
+};
 
 /* ───────── API MUTATIONS ───────── */
 
@@ -86,6 +89,17 @@ export const updateVendorBillApi = async ({ id, ...patch }: any) => {
   return data;
 };
 
+export const createEmiScheduleApi = async (emi: any | any[]) => {
+  const { data } = await axios.post(`${API_URL}/api/finance/emi-schedules`, emi, getHeaders());
+  return data;
+};
+
+export const updateEmiScheduleApi = async ({ id, ...patch }: any) => {
+  const { data } = await axios.put(`${API_URL}/api/finance/emi-schedules/${id}`, patch, getHeaders());
+  return data;
+};
+
+
 
 export const convertPiToTiApi = async (payload: { piId: string; amount?: number; notes?: string }) => {
   const { data } = await axios.post(`${API_URL}/api/finance/convert-pi-to-ti`, payload, getHeaders());
@@ -126,14 +140,12 @@ export function getMockFinanceData() {
     { id: "bud2", department: "HR", category: "Salaries", month: monthKey, plannedAmount: 350000, createdAt: now.toISOString() },
   ];
 
-  const emiSchedules: EmiSchedule[] = [];
   const cashflow: CashFlowEntry[] = [];
   const logs: FinanceLog[] = [];
 
   return {
     vendorBills,
     budgets,
-    emiSchedules,
     cashflow,
     logs
   };
@@ -142,7 +154,7 @@ export function getMockFinanceData() {
 // Deprecated mock functions used by frontend until fully migrated
 const STABLE_EMPTY_FINANCE = { 
   invoices: [], payments: [], expenses: [], vendors: [], 
-  vendorBills: [], budgets: [], emiSchedules: [], cashflow: [], logs: [] 
+  vendorBills: [], budgets: [], cashflow: [], logs: [] 
 };
 
 export function subscribeFinance(l: any) { return () => {}; }

@@ -16,7 +16,10 @@ import {
   linkExistingTiToPi,
   getVendorBills,
   createVendorBill,
-  updateVendorBill
+  updateVendorBill,
+  getEmiSchedules,
+  createEmiSchedule,
+  updateEmiSchedule
 } from '../controllers/financeController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -68,5 +71,12 @@ router.route('/link-pi-ti')
 
 router.route('/pi-ti-mappings')
   .get(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), getPiTiMappings);
+
+// EMI Schedule routes
+router.route('/emi-schedules')
+  .get(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner', 'counselor'), getEmiSchedules)
+  .post(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), createEmiSchedule);
+router.route('/emi-schedules/:id')
+  .put(authorize('admin', 'accounts_manager', 'accounts_executive', 'owner'), updateEmiSchedule);
 
 export default router;

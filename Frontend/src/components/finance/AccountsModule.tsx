@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
-  getMockFinanceData, fetchInvoices, fetchExpenses, fetchPayments, fetchVendors, fetchVendorBillsApi, fetchPiTiMappingsApi,
+  getMockFinanceData, fetchInvoices, fetchExpenses, fetchPayments, fetchVendors, fetchVendorBillsApi, fetchPiTiMappingsApi, fetchEmiSchedulesApi,
   recomputeOverdue, autoSeedEmisForPartial,
   createInvoiceApi, createPaymentApi, updateExpenseApi, createExpenseApi, createVendorApi,
-  createVendorBillApi, updateVendorBillApi, createBudget, payEmi,
+  createVendorBillApi, updateVendorBillApi, createBudget, updateEmiScheduleApi,
 } from "@/lib/finance-store";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -69,12 +69,13 @@ function useFinance() {
   const paymentsQuery = useQuery({ queryKey: ['payments'], queryFn: fetchPayments });
   const vendorsQuery = useQuery({ queryKey: ['vendors'], queryFn: fetchVendors });
   const vendorBillsQuery = useQuery({ queryKey: ['vendor-bills'], queryFn: fetchVendorBillsApi });
+  const emiSchedulesQuery = useQuery({ queryKey: ['emiSchedules'], queryFn: fetchEmiSchedulesApi });
   const approvalsQuery = useQuery({ queryKey: ['approvals'], queryFn: fetchApprovals });
   const piTiMappingsQuery = useQuery({ queryKey: ['piTiMappings'], queryFn: fetchPiTiMappingsApi });
 
   const mockData = useMemo(() => getMockFinanceData(), []);
 
-  const isLoading = invoicesQuery.isLoading || expensesQuery.isLoading || paymentsQuery.isLoading || vendorsQuery.isLoading || vendorBillsQuery.isLoading || piTiMappingsQuery.isLoading;
+  const isLoading = invoicesQuery.isLoading || expensesQuery.isLoading || paymentsQuery.isLoading || vendorsQuery.isLoading || vendorBillsQuery.isLoading || emiSchedulesQuery.isLoading || piTiMappingsQuery.isLoading;
 
   return {
     invoices: invoicesQuery.data || [],
@@ -82,6 +83,7 @@ function useFinance() {
     payments: paymentsQuery.data || [],
     vendors: vendorsQuery.data || [],
     vendorBills: vendorBillsQuery.data || [],
+    emiSchedules: emiSchedulesQuery.data || [],
     approvals: (approvalsQuery.data || []) as ApprovalRequest[],
     piTiMappings: piTiMappingsQuery.data || [],
     ...mockData,
@@ -823,6 +825,16 @@ function EmiTab() {
   const fin = useFinance();
   const { currentUser } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const updateMutation = useMutation({
+    mutationFn: updateEmiScheduleApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['emiSchedules'] });
+      toast({ title: "EMI marked paid" });
+    },
+    onError: (err: any) => toast({ title: "Update failed", description: err.message, variant: "destructive" })
+  });
 
   const cols: Column<EmiSchedule>[] = [
     { key: "cust", header: "Customer", render: r => r.customerName, sortValue: r => r.customerName, exportValue: r => r.customerName },
@@ -833,7 +845,7 @@ function EmiTab() {
     {
       key: "actions", header: "", render: r => r.status === "Paid"
         ? <span className="text-xs text-muted-foreground">Done</span>
-        : <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); payEmi(r.id, "UPI", currentUser?.id || "u0"); toast({ title: "EMI marked paid" }); }}>Collect</Button>
+        : <Button size="sm" variant="outline" disabled={updateMutation.isPending} onClick={(e) => { e.stopPropagation(); updateMutation.mutate({ id: r.id, status: "Paid", paidOn: new Date().toISOString() }); }}>Collect</Button>
     },
   ];
 

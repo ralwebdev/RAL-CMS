@@ -4,6 +4,7 @@ import FinanceExpense from '../models/FinanceExpense.js';
 import FinancePayment from '../models/FinancePayment.js';
 import PiTiMapping from '../models/PiTiMapping.js';
 import FinanceVendorBill from '../models/FinanceVendorBill.js';
+import FinanceEmiSchedule from '../models/FinanceEmiSchedule.js';
 
 // @desc    Get all vendors
 // @route   GET /api/finance/vendors
@@ -400,3 +401,60 @@ export const updateVendorBill = async (req, res) => {
   }
 };
 
+// @desc    Get all EMI schedules
+// @route   GET /api/finance/emi-schedules
+// @access  Private/Admin,Accounts,Counselor
+export const getEmiSchedules = async (req, res) => {
+  try {
+    const schedules = await FinanceEmiSchedule.find({});
+    res.json(schedules);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Create an EMI schedule (or multiple)
+// @route   POST /api/finance/emi-schedules
+// @access  Private/Admin,Accounts
+export const createEmiSchedule = async (req, res) => {
+  try {
+    const data = req.body;
+    
+    // Support bulk creation
+    if (Array.isArray(data)) {
+      const schedules = data.map(item => ({
+        ...item,
+        createdBy: req.user._id,
+      }));
+      const createdSchedules = await FinanceEmiSchedule.insertMany(schedules);
+      return res.status(201).json(createdSchedules);
+    } else {
+      const schedule = new FinanceEmiSchedule({
+        ...data,
+        createdBy: req.user._id,
+      });
+      const createdSchedule = await schedule.save();
+      return res.status(201).json(createdSchedule);
+    }
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Update an EMI schedule
+// @route   PUT /api/finance/emi-schedules/:id
+// @access  Private/Admin,Accounts
+export const updateEmiSchedule = async (req, res) => {
+  try {
+    const schedule = await FinanceEmiSchedule.findById(req.params.id);
+    if (schedule) {
+      Object.assign(schedule, req.body);
+      const updatedSchedule = await schedule.save();
+      res.json(updatedSchedule);
+    } else {
+      res.status(404).json({ message: 'EMI schedule not found' });
+    }
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
