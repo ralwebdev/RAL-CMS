@@ -6,7 +6,7 @@
 RAL-CMS is a specialized CRM system designed for educational institutions or training centers to manage lead lifecycles, marketing campaigns, and admissions. It consists of a Node.js/Express backend and a React/Vite frontend.
 
 ### 1.2 Primary Functions & Classes
-- **Authentication:** JWT-based auth with role-based access control (Admin, Marketing Manager, Telecaller, Counselor, etc.).
+- **Authentication:** JWT-based auth with role-based access control (Admin, Marketing Manager, Telecaller, Counselor, etc.). See the [Role Permissions Manual](./ROLE_PERMISSIONS_MANUAL.md) for a detailed breakdown.
 - **Lead Management:** Full CRUD for leads, including tracking sources, interested courses, and qualification scores.
 - **Campaign Management:** Tracking marketing spend, platform performance (Meta, Google, etc.), and CPL (Cost Per Lead).
 - **Interaction Tracking:** Call logs and follow-up scheduling.
